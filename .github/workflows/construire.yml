@@ -1,5 +1,8 @@
-# À chaque poussée : le projet se génère et se compile pour le simulateur, sans
-# signature. C'est le seul « Mac » du projet — il dit si le code tient.
+# À chaque poussée : le projet se génère, se compile pour le simulateur (sans
+# signature), puis l'application est INSTALLÉE ET LANCÉE dans un iPhone simulé.
+# Des captures d'écran sont gardées en artefact : c'est le seul « iPhone » du
+# projet, et c'est là qu'on regarde si l'accueil s'affiche, si le pont est
+# posé et si le lien rapporteur:// est bien reçu.
 name: Construire
 
 on:
@@ -10,14 +13,17 @@ on:
 
 jobs:
   simulateur:
-    name: Compiler pour le simulateur iPhone
+    name: Compiler et lancer dans le simulateur iPhone
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
       - name: Choisir Xcode
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app || sudo xcode-select -s "$(ls -d /Applications/Xcode_16*.app | tail -1)"
+        run: |
+          ls -d /Applications/Xcode*.app
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_16*.app | sort -V | tail -1)"
+          xcodebuild -version
 
       - name: Installer XcodeGen
         run: brew install xcodegen
@@ -37,7 +43,49 @@ jobs:
             RAPPORTEUR_EQUIPE= \
             -quiet
 
-      - name: Vérifier le pont et l'écran hors ligne dans le paquet
+      - name: Vérifier le paquet
         run: |
           app=$(find build/Build/Products -name "Rapporteur.app" -type d | head -1)
-          test -f "$app/pont.js" && test -f "$app/hors-ligne.html" && echo "ressources présentes dans $app"
+          echo "APP=$app" >> "$GITHUB_ENV"
+          test -f "$app/pont.js" && test -f "$app/hors-ligne.html" && echo "pont.js et hors-ligne.html présents"
+          plutil -p "$app/Info.plist" | grep -E "CFBundleIdentifier|CFBundleShortVersionString|UIBackgroundModes|CFBundleURLSchemes" -A1 | head -20
+
+      - name: Démarrer un iPhone simulé
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json,sys
+          d=json.load(sys.stdin)["devices"]
+          tel=[x for k in d for x in d[k] if x["name"].startswith("iPhone") and "iOS" in k]
+          tel.sort(key=lambda x: x["name"])
+          print(tel[-1]["udid"]); print(tel[-1]["name"], file=sys.stderr)')
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          # La langue du téléphone : français, comme les clients.
+          xcrun simctl spawn "$UDID" defaults write "Apple Global Domain" AppleLanguages -array fr-FR
+          xcrun simctl spawn "$UDID" defaults write "Apple Global Domain" AppleLocale -string fr_FR
+
+      - name: Installer, lancer, photographier
+        run: |
+          mkdir -p captures
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch "$UDID" com.lerapporteur.mobile
+          sleep 20
+          xcrun simctl io "$UDID" screenshot captures/1-accueil.png
+          # L'application vit-elle encore ? (un plantage au lancement la ferait disparaître)
+          xcrun simctl spawn "$UDID" launchctl list | grep -q "com.lerapporteur.mobile" && echo "processus vivant"
+          # Le lien de retour de connexion : un faux billet doit mener à /connexion?expire=1 — pas planter.
+          xcrun simctl openurl "$UDID" "rapporteur://connexion?billet=essai-banc"
+          sleep 8
+          xcrun simctl io "$UDID" screenshot captures/2-lien-connexion.png
+          xcrun simctl spawn "$UDID" launchctl list | grep -q "com.lerapporteur.mobile" && echo "processus vivant après le lien"
+          # Le journal de l'application, pour lire une erreur éventuelle.
+          xcrun simctl spawn "$UDID" log show --last 3m --predicate 'process == "Rapporteur"' --style compact > captures/journal.txt 2>&1 || true
+          tail -40 captures/journal.txt || true
+
+      - name: Garder les captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: captures-simulateur-${{ github.run_number }}
+          path: captures
