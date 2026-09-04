@@ -1,0 +1,11 @@
+# Le projet Xcode est généré par XcodeGen depuis project.yml : on ne le versionne pas.
+*.xcodeproj
+*.xcworkspace
+build/
+DerivedData/
+xcuserdata/
+.DS_Store
+# Jamais de clé ni de certificat ici.
+*.p8
+*.p12
+*.mobileprovision

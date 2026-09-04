@@ -1,0 +1,61 @@
+# Le projet Xcode est GÉNÉRÉ depuis ce fichier par XcodeGen (`xcodegen generate`),
+# sur la machine macOS de GitHub Actions : il n'y a pas de Mac ici, et un
+# .xcodeproj écrit à la main ne se relit pas. Tout ce qui compte est dans ce
+# fichier, Info.plist et les sources.
+name: Rapporteur
+options:
+  bundleIdPrefix: com.lerapporteur
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    # La version visible (MARKETING_VERSION) et le numéro de build
+    # (CURRENT_PROJECT_VERSION) sont écrasés par le workflow de publication.
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targets:
+  Rapporteur:
+    type: application
+    platform: iOS
+    sources:
+      - path: Rapporteur
+        excludes:
+          - "Info.plist"
+          - "Ressources/**"
+      # Le pont et l'écran hors ligne sont des RESSOURCES copiées dans le
+      # paquet, pas des sources à compiler.
+      - path: Rapporteur/Ressources
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lerapporteur.mobile
+        PRODUCT_NAME: Rapporteur
+        INFOPLIST_FILE: Rapporteur/Info.plist
+        # iPhone seulement : la salle d'enregistrement est pensée pour un
+        # téléphone posé sur la table. (« 1,2 » ouvrirait l'iPad, avec les
+        # captures d'écran iPad qu'Apple exige alors.)
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+        SWIFT_EMIT_LOC_STRINGS: NO
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
+        DEVELOPMENT_TEAM: "$(RAPPORTEUR_EQUIPE)"
+    dependencies: []
+schemes:
+  Rapporteur:
+    build:
+      targets:
+        Rapporteur: all
+    run:
+      config: Debug
+    archive:
+      config: Release

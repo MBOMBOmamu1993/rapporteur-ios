@@ -1,0 +1,43 @@
+# À chaque poussée : le projet se génère et se compile pour le simulateur, sans
+# signature. C'est le seul « Mac » du projet — il dit si le code tient.
+name: Construire
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  simulateur:
+    name: Compiler pour le simulateur iPhone
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Choisir Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app || sudo xcode-select -s "$(ls -d /Applications/Xcode_16*.app | tail -1)"
+
+      - name: Installer XcodeGen
+        run: brew install xcodegen
+
+      - name: Générer le projet
+        run: xcodegen generate
+
+      - name: Compiler
+        run: |
+          xcodebuild build \
+            -project Rapporteur.xcodeproj \
+            -scheme Rapporteur \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            RAPPORTEUR_EQUIPE= \
+            -quiet
+
+      - name: Vérifier le pont et l'écran hors ligne dans le paquet
+        run: |
+          app=$(find build/Build/Products -name "Rapporteur.app" -type d | head -1)
+          test -f "$app/pont.js" && test -f "$app/hors-ligne.html" && echo "ressources présentes dans $app"

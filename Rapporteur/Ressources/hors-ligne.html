@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rapporteur</title>
+<style>
+:root {
+  --amber: #CC785C; --ground: #F0EEE6; --ink: #141413; --ink-soft: #6B6A65;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --amber: #E08D6D; --ground: #141413; --ink: #F0EEE6; --ink-soft: #B5B2A8; }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh; background: var(--ground); color: var(--ink);
+  font-family: -apple-system, "Helvetica Neue", system-ui, sans-serif; line-height: 1.6;
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  padding: 2rem; padding-top: max(2rem, env(safe-area-inset-top));
+}
+main { max-width: 26rem; display: flex; flex-direction: column; align-items: center; gap: .9rem; }
+h1 { font-family: Georgia, serif; font-weight: 400; font-size: 1.6rem; margin: 0; }
+p { margin: 0; color: var(--ink-soft); }
+button {
+  margin-top: .6rem; border: 0; border-radius: 999px; padding: .85rem 2.2rem;
+  background: var(--amber); color: #FFF; font-size: 1rem; font-weight: 600; cursor: pointer;
+}
+</style>
+</head>
+<body>
+<main>
+  <svg width="56" height="56" viewBox="0 0 32 32" aria-hidden="true">
+    <rect width="32" height="32" rx="7" fill="#141413"></rect>
+    <rect x="13" y="7" width="6" height="12" rx="3" fill="#CC785C"></rect>
+    <path d="M10 16a6 6 0 0 0 12 0M16 22v3" stroke="#CC785C" stroke-width="2" fill="none" stroke-linecap="round"></path>
+  </svg>
+  <h1 id="titre">Pas de connexion</h1>
+  <p id="texte">Rapporteur n'arrive pas à joindre le réseau, et cet appareil n'a pas encore gardé ses écrans : ouvrez l'application une première fois avec la connexion. Ensuite, elle s'ouvre et enregistre sans réseau — seul l'envoi attend la connexion.</p>
+  <p id="attente" hidden>La connexion est revenue, un instant…</p>
+  <button id="bouton" type="button">Réessayer</button>
+</main>
+<script>
+(function () {
+  "use strict";
+  var langue = (navigator.language || "fr").slice(0, 2).toLowerCase();
+  var en = langue !== "fr";
+  if (en) {
+    document.documentElement.lang = "en";
+    document.getElementById("titre").textContent = "No connection";
+    document.getElementById("texte").textContent =
+      "Rapporteur can't reach the network, and this device hasn't kept its screens yet: open the app once with a connection. From then on it opens and records offline — only the upload waits for the network.";
+    document.getElementById("attente").textContent = "The connection is back, one moment…";
+    document.getElementById("bouton").textContent = "Try again";
+  }
+  function revenir() {
+    window.location.replace("https://lerapporteur.com" + (en ? "/en/mobile" : "/mobile"));
+  }
+  document.getElementById("bouton").addEventListener("click", revenir);
+  window.addEventListener("online", function () {
+    document.getElementById("attente").hidden = false;
+    setTimeout(revenir, 800);
+  });
+})();
+</script>
+</body>
+</html>
