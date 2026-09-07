@@ -53,19 +53,25 @@ jobs:
           ASC_CLE_ID: ${{ secrets.ASC_CLE_ID }}
           ASC_EMETTEUR_ID: ${{ secrets.ASC_EMETTEUR_ID }}
         run: |
+          # L'archive n'est PAS signée ici. Signée, xcodebuild réclamerait un
+          # profil « iOS App Development », qu'Apple refuse de fabriquer tant
+          # qu'aucun appareil n'est enregistré dans l'équipe — et nous n'avons
+          # pas d'iPhone à déclarer. La signature de distribution est posée à
+          # l'étape suivante, par -exportArchive, avec le certificat que Xcode
+          # crée et garde dans le nuage. L'application n'a aucun droit
+          # particulier (pas de push, pas d'iCloud) : rien ne se perd.
           xcodebuild archive \
             -project Rapporteur.xcodeproj \
             -scheme Rapporteur \
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath build/Rapporteur.xcarchive \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$HOME/private_keys/AuthKey_${ASC_CLE_ID}.p8" \
-            -authenticationKeyID "$ASC_CLE_ID" \
-            -authenticationKeyIssuerID "$ASC_EMETTEUR_ID" \
             RAPPORTEUR_EQUIPE="$APPLE_EQUIPE" \
             DEVELOPMENT_TEAM="$APPLE_EQUIPE" \
-            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
             MARKETING_VERSION="${{ inputs.version }}" \
             CURRENT_PROJECT_VERSION="${{ github.run_number }}"
 
