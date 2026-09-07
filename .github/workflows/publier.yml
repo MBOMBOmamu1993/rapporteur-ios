@@ -30,7 +30,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Choisir Xcode
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app || sudo xcode-select -s "$(ls -d /Applications/Xcode_16*.app | tail -1)"
+        run: |
+          # Le PLUS RÉCENT des Xcode installés, jamais une version épinglée :
+          # l'image GitHub ne garde que les runtimes de simulateur du Xcode
+          # courant, et un Xcode plus ancien fait échouer actool sur le
+          # catalogue d'icônes (« No simulator runtime version … available »),
+          # alors même que nous compilons pour un appareil.
+          dernier="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)"
+          if [ -n "$dernier" ]; then sudo xcode-select -s "$dernier"; fi
+          xcodebuild -version
 
       - name: Installer XcodeGen
         run: brew install xcodegen
