@@ -44,8 +44,11 @@ Ce que vous faites vous-même — je ne peux ni créer le compte ni payer.
 
 1. https://appstoreconnect.apple.com → *Users and Access* → onglet
    **Integrations** → *App Store Connect API* → *Team Keys* → **+**.
-2. Nom : `GitHub Actions`, accès : **App Manager** (suffit pour signer,
-   téléverser et gérer la version ; évitez *Admin*).
+2. Nom : `GitHub Actions`, accès : **Admin**. *App Manager ne suffit pas* :
+   la signature dans le nuage crée un certificat de distribution, et seule une
+   clé Admin en a le droit — sinon l'export échoue sur « Cloud signing
+   permission error ». (Constaté le 08/09/2026 : la première clé, App Manager,
+   a dû être remplacée.)
 3. Téléchargez le fichier **`AuthKey_XXXXXXXXXX.p8`** — **une seule fois
    possible** : gardez-le hors du dépôt (par exemple dans votre gestionnaire de
    mots de passe).
@@ -62,6 +65,13 @@ Actions → New repository secret*, créez :
 | `ASC_EMETTEUR_ID` | l'Issuer ID |
 | `ASC_CLE_P8` | le contenu du fichier `.p8`, collé tel quel (les lignes BEGIN/END comprises) |
 
+> **Le compte, tel qu'il est** (relevé le 08/09/2026) : Team ID `HAJ75PNSBY`,
+> inscription *personne physique*, Issuer ID `5369585d-d013-472a-b029-cdf1b2f38736`,
+> clé de signature `J5KDJK52QC` (Admin). L'*Apple ID* de l'application est
+> **6809614915** — c'est le numéro de `https://apps.apple.com/app/id6809614915`.
+> Le premier accès à l'API demande un clic « Demander l'accès » (approuvé dans
+> la seconde) et l'acceptation des conditions d'App Store Connect.
+
 ## 3. L'identifiant de l'application et la fiche App Store Connect
 
 1. https://developer.apple.com/account/resources/identifiers → **+** →
@@ -76,23 +86,49 @@ Actions → New repository secret*, créez :
    (les mêmes que Google Play, adaptés) : sous-titre, description, mots-clés,
    URL d'assistance, URL de confidentialité (`https://lerapporteur.com/confidentialite`),
    catégorie **Productivity**, copyright.
-4. **Captures d'écran** : obligatoires en **6,7"** (1290 × 2796) ; Apple les
-   réutilise pour les autres tailles. Le script
+4. **Captures d'écran** : nos fichiers font 1290 × 2796, ce qui est la taille
+   **6,9 pouces** — et non celle que la page de la version propose par défaut
+   (6,5", qui les refuse). Passez par *Afficher toutes les tailles dans le
+   gestionnaire des visuels*, dépliez « Écran de 6,9 pouces » et déposez-les là ;
+   Apple les réutilise pour les autres tailles. **Une par une** : un envoi
+   groupé les range dans l'ordre d'arrivée, pas dans celui des noms. Le script
    `outils/captures-appstore.mjs` du dépôt `rapporteur-web` les produit
    depuis le site (voir le README de ce dossier). Pas de vidéo obligatoire.
 5. **App Privacy** (déclaration de confidentialité, exigée avant l'envoi) :
-   *Data collected* → **Contact Info → Email Address** (compte, lié à
-   l'identité, pas de suivi) et **User Content → Audio Data** (fonctionnalité de
-   l'application, non lié à l'identité après traitement — l'audio est supprimé
-   après transcription) ; *Privacy policy URL* la même. Pas de suivi publicitaire.
+   *Data collected* → **Contact Info → Email Address** et **User Content →
+   Audio Data**, tous deux « Fonctionnalité de l'app », tous deux **liés à
+   l'identité**, aucun suivi. L'audio EST lié : il est déposé sous le compte du
+   client avant d'être supprimé — déclarer le contraire serait un décalage, et
+   Apple retire une application dont la déclaration ne tient pas. La suppression
+   après transcription se dit dans la politique, pas ici. *Privacy policy URL* :
+   `https://lerapporteur.com/confidentialite`.
 6. **Age Rating** : répondre *None* partout → **4+**.
-7. **App Review Information** : *Sign-in required* : oui — compte de
-   démonstration **demo@lerapporteur.com** (connexion par code courriel :
-   indiquez dans les notes que le code arrive à cette adresse et que vous le
-   fournirez sur demande, ou laissez le champ mot de passe vide avec cette
-   explication). Notes pour l'examinateur : voir `app-store/fiche.md`, section
-   « Notes pour l'examen » — elles expliquent le micro en arrière-plan et
-   l'absence d'achat dans l'application.
+7. **App Review Information** : *Sign-in required* : **oui**, avec un vrai
+   couple qui fonctionne — un examinateur qui ne franchit pas la porte refuse
+   l'application (règle 2.1). Notre connexion n'a pas de mot de passe, alors le
+   serveur en fabrique un pour cette seule adresse : les variables
+   `EXAMEN_COURRIEL` et `EXAMEN_CODE` de `rapporteur-web` (Vercel, production)
+   ouvrent `demo@lerapporteur.com` avec un code fixe à six chiffres, plafonné à
+   trente essais par heure pour tout le site (voir `lib/connexion-courriel.js`).
+   On met l'adresse dans *Nom d'utilisateur*, le code dans *Mot de passe*, et
+   l'on **retire `EXAMEN_CODE` après l'approbation**. Notes pour l'examinateur :
+   voir `app-store/fiche.md` — elles expliquent le micro en arrière-plan,
+   l'absence d'achat, et comment se connecter.
+
+## 3 bis. Le statut de commerçant (règlement européen DSA)
+
+Sans cette déclaration, Apple retire l'application de l'App Store **européen** —
+mais elle ne bloque pas la soumission. *Business → Compléter les exigences de
+conformité* : « J'ai le statut de commerçant », puis l'adresse, le téléphone et
+le courriel qui seront **publics sur la fiche** — ceux du site :
+22 bis Ndjoku, Ngaliema, Kinshasa ; `sales@lerapporteur.com`. Apple valide
+l'adresse par un code courriel, puis le numéro. Aucun RCCM n'a été demandé.
+
+Deux pièges : le champ *Indicatif du pays* doit être choisi explicitement (le
+laisser vide fait échouer la validation du numéro sans le dire), et un code
+courriel neuf est envoyé à **chaque** tentative — c'est toujours le dernier qui
+vaut. Un numéro peut être refusé (« ne peut pas être utilisé pour l'instant ») :
+essayez-en un autre.
 
 ## 4. Construire et téléverser (GitHub Actions)
 
@@ -104,6 +140,20 @@ Actions → New repository secret*, créez :
    version → le build `1.0.0 (N)` apparaît sous *Build* après 5 à 20 minutes
    de traitement (courriel « has completed processing »). Ne rien faire dans
    TestFlight : le build sert directement à la version.
+
+Deux pièges déjà franchis, corrigés dans `publier.yml` — ne les rouvrez pas :
+
+- **Le Xcode n'est jamais épinglé.** L'image macOS de GitHub ne garde que les
+  runtimes de simulateur du Xcode courant ; sur une version plus ancienne,
+  `actool` refuse le catalogue d'icônes (« No simulator runtime version …
+  available to use with iphonesimulator SDK »), alors même que l'on compile
+  pour un appareil. Le workflow prend le plus récent des `Xcode_*.app`.
+- **L'archive n'est pas signée.** Signée, `xcodebuild archive` réclame un
+  profil *iOS App Development*, qu'Apple refuse de fabriquer tant que l'équipe
+  ne déclare aucun appareil — et nous n'en avons pas. On archive donc avec
+  `CODE_SIGNING_ALLOWED=NO` et l'on confie la signature de distribution à
+  `-exportArchive`. L'application ne porte aucun droit particulier : rien ne se
+  perd.
 
 Si l'export échoue sur la signature (« No signing certificate »), la solution
 de repli est de créer le certificat *Apple Distribution* soi-même
