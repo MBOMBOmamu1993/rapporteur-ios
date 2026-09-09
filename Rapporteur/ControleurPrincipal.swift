@@ -197,7 +197,8 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
     func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
                  initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
                  decisionHandler: @escaping (WKPermissionDecision) -> Void) {
-        let notre = Self.hotes.contains(origin.host.lowercased())
+        let notre = origin.protocol == "https" && [0, 443].contains(origin.port)
+            && frame.isMainFrame && Self.hotes.contains(origin.host.lowercased())
         decisionHandler(notre && type == .microphone ? .grant : .deny)
     }
 

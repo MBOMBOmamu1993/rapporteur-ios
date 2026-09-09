@@ -51,6 +51,9 @@ final class Pont: NSObject, WKScriptMessageHandler {
         // Seule notre page parle au pont : une caisse de paiement embarquée
         // n'obtient rien.
         let hote = message.frameInfo.securityOrigin.host.lowercased()
+        guard message.frameInfo.isMainFrame,
+              message.frameInfo.securityOrigin.protocol == "https",
+              [0, 443].contains(message.frameInfo.securityOrigin.port) else { return }
         guard hote == "lerapporteur.com" || hote == "www.lerapporteur.com" else { return }
         guard let corps = message.body as? [String: Any],
               let id = corps["id"] as? Int,
@@ -117,7 +120,14 @@ final class Pont: NSObject, WKScriptMessageHandler {
 
     // MARK: - Réponses
 
+    private var pageDeConfiance: Bool {
+        guard let url = vue?.url, url.scheme == "https",
+              url.port == nil || url.port == 443 else { return false }
+        return ["lerapporteur.com", "www.lerapporteur.com"].contains(url.host?.lowercased() ?? "")
+    }
+
     private func repondre(_ id: Int, _ reponse: [String: Any]) {
+        guard pageDeConfiance else { return }
         guard let json = try? JSONSerialization.data(withJSONObject: reponse),
               let texte = String(data: json, encoding: .utf8) else { return }
         vue?.evaluateJavaScript("window.rapporteurIOS && window.rapporteurIOS._repondre(\(id), \(texte));")
@@ -129,6 +139,9 @@ final class Pont: NSObject, WKScriptMessageHandler {
         let pas = 1_048_576
         var debut = 0
         func suivant() {
+            // La navigation peut avoir changé pendant le transfert asynchrone.
+            // Ne jamais livrer l'audio à une nouvelle page non autorisée.
+            guard self.pageDeConfiance else { return }
             guard debut < donnees.count else { fini(); return }
             let fin = min(debut + pas, donnees.count)
             let b64 = donnees.subdata(in: debut..<fin).base64EncodedString()
