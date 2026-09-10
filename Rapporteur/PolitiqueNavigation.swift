@@ -16,7 +16,7 @@ enum PolitiqueNavigation {
         let interne = https && hotes.contains(hote)
 
         if cadrePrincipal == false {
-            if schema == "about" && ["blank", "srcdoc"].contains(url.path) { return .permettre }
+            if ["about:blank", "about:srcdoc"].contains(url.absoluteString) { return .permettre }
             return interne || (https && hote == "challenges.cloudflare.com") ? .permettre : .refuser
         }
         // Un sous-cadre ne peut ouvrir ni une fenêtre ni une application.

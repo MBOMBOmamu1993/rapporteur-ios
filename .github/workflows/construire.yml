@@ -13,7 +13,11 @@ on:
 
 jobs:
   simulateur:
-    name: Compiler et lancer dans le simulateur iPhone
+    name: Compiler et lancer dans le simulateur ${{ matrix.appareil }}
+    strategy:
+      fail-fast: false
+      matrix:
+        appareil: [iPhone, iPad]
     runs-on: macos-15
     timeout-minutes: 40
     steps:
@@ -55,12 +59,14 @@ jobs:
           test -f "$app/pont.js" && test -f "$app/hors-ligne.html" && echo "pont.js et hors-ligne.html présents"
           plutil -p "$app/Info.plist" | grep -E "CFBundleIdentifier|CFBundleShortVersionString|UIBackgroundModes|CFBundleURLSchemes" -A1 | head -20
 
-      - name: Démarrer un iPhone simulé
+      - name: Démarrer le simulateur
+        env:
+          APPAREIL: ${{ matrix.appareil }}
         run: |
           UDID=$(xcrun simctl list devices available -j | python3 -c '
-          import json,sys
+          import json,sys,os
           d=json.load(sys.stdin)["devices"]
-          tel=[x for k in d for x in d[k] if x["name"].startswith("iPhone") and "iOS" in k]
+          tel=[x for k in d for x in d[k] if x["name"].startswith(os.environ["APPAREIL"]) and "iOS" in k]
           tel.sort(key=lambda x: x["name"])
           print(tel[-1]["udid"]); print(tel[-1]["name"], file=sys.stderr)')
           echo "UDID=$UDID" >> "$GITHUB_ENV"
@@ -92,5 +98,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: captures-simulateur-${{ github.run_number }}
+          name: captures-simulateur-${{ matrix.appareil }}-${{ github.run_number }}
           path: captures
