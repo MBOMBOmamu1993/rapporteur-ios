@@ -1,0 +1,27 @@
+CORRECTED BUILD 1.1.5 (5) — SEPTEMBER 10
+2.1: The embedded Cloudflare human-verification frame was wrongly sent to Safari by our iOS navigation delegate. It now stays inside WKWebView; subframes cannot open Safari. The user agent is stable from launch. Email-code requests wait for verification, then continue automatically, with bounded waits, visible errors and retries. Human verification and server-side rate limits remain enabled.
+4.8: iOS now exclusively uses Rapporteur's own passwordless email-code account creation and login. Google login has been removed from the iOS app, including native navigation to its login endpoint. Existing customers keep the same account by using the same email address.
+
+PHYSICAL IPHONE RECORDING — ALREADY ATTACHED
+rapporteur-test-iphone-reel-2026-09-09.mp4 (6 min 18 sec). Recorded on a real iPhone on September 9; added after our first reply. Please disregard our earlier message saying a device video was unavailable. It demonstrates meeting recording, account/deletion controls and report delivery. The earlier Google login shown in this video predates build 5; the new build uses email only. Please open the file under App Review Information > Attachment. Our reply also identifies this attachment.
+
+DEMO LOGIN
+Use the Username and Password fields above. Open “Se connecter” / “Sign in”, enter demo@lerapporteur.com, choose “J’ai déjà un code” / “I already have a code”, and enter the six-digit Password value. No email inbox access is needed. This still validates the code on our server. Ordinary users request a code with “Recevoir un code de connexion” / “Email me a sign-in code”; Cloudflare may ask for human verification before the email is sent. First successful sign-in creates the account; no separate registration or password.
+
+PURPOSE AND AUDIENCE
+Rapporteur turns meeting audio into structured Word minutes: participants, topics, decisions, actions and owners. It serves professionals in NGOs, administrations, small businesses and consulting, in French and English. It is a general-purpose productivity tool, not a regulated medical, legal or financial service; no protected third-party material is supplied.
+
+MAIN FEATURES AND TEST STEPS
+Launch, tap the microphone, sign in, select “En salle” / “In the room”, tap Start, and grant microphone access. Speak, lock and unlock the device, then Stop. Native AVAudioEngine records while the screen is off; audio background mode is used only during recording. A local notification alerts on silence. The recording is kept locally if offline and uploads on reconnection. The report is emailed after processing. Switch FR/EN from the interface.
+
+ACCOUNT AND CONTENT
+Account > “Supprimer mon compte” / “Delete my account” opens the permanent-deletion confirmation. Recordings and reports belong to the signed-in account. There is no social messaging. Customer reviews are moderated; abusive content can be reported to info@lerapporteur.com.
+
+PURCHASES
+There are no purchases, checkout pages or purchase buttons in the iOS app. New accounts receive three free reports. The app can use credits provided through the web service; payment processing is website-only.
+
+EXTERNAL SERVICES AND REGIONS
+Vercel hosting/functions/Blob storage; AssemblyAI transcription; Anthropic report generation; Resend transactional email; Cloudflare Turnstile bot protection. Stripe/CinetPay process website payments. Telegram/CallMeBot support internal operational alerts. No advertising or tracking SDK. Audio is deleted after transcription. The same app features are available across regions; French and English are supported.
+
+CONTACT
+info@lerapporteur.com
