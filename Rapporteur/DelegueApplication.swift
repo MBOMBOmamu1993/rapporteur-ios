@@ -11,8 +11,7 @@ import UserNotifications
 ///    page dès que l'application passe en arrière-plan ; l'application capte
 ///    donc elle-même, avec AVAudioEngine et le mode audio en arrière-plan, et
 ///    rend le fichier à la page — voir `Enregistreur`) ;
-///  - conclure la connexion Google hors de la vue web (Google refuse ses pages
-///    aux vues web), par ASWebAuthenticationSession et le lien rapporteur:// ;
+///  - garder la connexion par code courriel dans l'application ;
 ///  - poser une notification locale quand la salle alerte d'un silence.
 ///
 /// Les clés, les prompts et la rédaction restent sur le serveur : il n'y a

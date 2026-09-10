@@ -22,8 +22,13 @@ jobs:
       - name: Choisir Xcode
         run: |
           ls -d /Applications/Xcode*.app
-          sudo xcode-select -s "$(ls -d /Applications/Xcode_16*.app | sort -V | tail -1)"
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
           xcodebuild -version
+
+      - name: Tester les cadres Cloudflare et la connexion
+        run: |
+          swiftc Rapporteur/PolitiqueNavigation.swift tests/main.swift -o /tmp/rapporteur-navigation-tests
+          /tmp/rapporteur-navigation-tests
 
       - name: Installer XcodeGen
         run: brew install xcodegen

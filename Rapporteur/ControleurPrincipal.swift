@@ -1,4 +1,3 @@
-import AuthenticationServices
 import UIKit
 import WebKit
 
@@ -6,26 +5,18 @@ import WebKit
 /// l'application, le même que sur Android : un bouton micro au centre.
 ///
 /// Ce que la vue web ne fait PAS elle-même, et que ce contrôleur décide :
-///  - la connexion Google se joue hors de la vue web (ASWebAuthenticationSession,
-///    qui partage la session Safari du téléphone : Google y est déjà connecté) et
-///    revient par rapporteur://connexion?billet=…, échangé contre la session
-///    DANS la vue web, avec le défi que seule l'application connaît ;
+///  - la connexion utilise exclusivement le code courriel de Rapporteur ;
+///  - Turnstile reste dans son cadre web, sans ouvrir Safari ;
 ///  - version App Store : tarifs et caisses ne se chargent jamais (règle 3.1.1),
 ///    le site les masque déjà — ceci est la ceinture et les bretelles ;
 ///  - les autres sites s'ouvrent dans Safari ; hors connexion, un écran local.
-final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDelegate,
-                                 ASWebAuthenticationPresentationContextProviding {
+final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDelegate {
 
     static let site = URL(string: "https://lerapporteur.com")!
     private static let hotes: Set<String> = ["lerapporteur.com", "www.lerapporteur.com"]
 
     private var toile: WKWebView!
     private let pont = Pont()
-    /// Le défi de la connexion en cours, exigé par le serveur à l'échange du
-    /// billet : une application tierce qui écouterait rapporteur:// aurait le
-    /// billet, jamais le défi.
-    private var defi: String?
-    private var sessionConnexion: ASWebAuthenticationSession?
 
     override func loadView() {
         let configuration = WKWebViewConfiguration()
@@ -36,6 +27,8 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
         if #available(iOS 14.0, *) {
             configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         }
+        // Fixé avant toute navigation : Turnstile exige un agent stable.
+        configuration.applicationNameForUserAgent = "Rapporteur/\(pont.version)"
         toile = WKWebView(frame: .zero, configuration: configuration)
         toile.navigationDelegate = self
         toile.uiDelegate = self
@@ -43,14 +36,6 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
         toile.scrollView.contentInsetAdjustmentBehavior = .never
         toile.backgroundColor = UIColor(named: "Fond")
         toile.isOpaque = false
-        // L'agent utilisateur du WKWebView : celui de Safari mobile, signé du nom
-        // de l'application. Le site y lit « iPhone » — son mode téléphone.
-        toile.customUserAgent = nil
-        toile.evaluateJavaScript("navigator.userAgent") { [weak self] resultat, _ in
-            if let ua = resultat as? String, let self = self {
-                self.toile.customUserAgent = ua + " Rapporteur/\(self.pont.version)"
-            }
-        }
         pont.attacher(a: toile)
         view = toile
     }
@@ -66,54 +51,11 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
         toile.load(URLRequest(url: Self.site.appendingPathComponent(anglais ? "en/mobile" : "mobile")))
     }
 
-    // MARK: - Le retour de la connexion (rapporteur://connexion?billet=…)
+    // MARK: - Compatibilité avec les anciens liens de connexion
 
     func traiterLien(_ lien: URL) {
-        guard lien.scheme == "rapporteur", lien.host == "connexion",
-              let billet = URLComponents(url: lien, resolvingAgainstBaseURL: false)?
-                .queryItems?.first(where: { $0.name == "billet" })?.value, !billet.isEmpty else { return }
-        var composants = URLComponents(url: Self.site.appendingPathComponent("api/connexion/mobile"),
-                                       resolvingAgainstBaseURL: false)!
-        composants.queryItems = [URLQueryItem(name: "billet", value: billet),
-                                 URLQueryItem(name: "defi", value: defi ?? "")]
-        defi = nil
-        toile.load(URLRequest(url: composants.url!))
-    }
-
-    /// La page demande la connexion : on l'ouvre dans la fenêtre système
-    /// d'authentification, armée du défi, et l'on attend rapporteur://.
-    private func ouvrirLaConnexion(_ depart: URL) {
-        defi = Self.fabriquerDefi()
-        var composants = URLComponents(url: depart, resolvingAgainstBaseURL: false)!
-        var items = composants.queryItems ?? []
-        items.append(URLQueryItem(name: "application", value: "ios"))
-        items.append(URLQueryItem(name: "defi", value: defi))
-        composants.queryItems = items
-        guard let url = composants.url else { return }
-
-        let session = ASWebAuthenticationSession(url: url, callbackURLScheme: "rapporteur") { [weak self] retour, _ in
-            self?.sessionConnexion = nil
-            guard let retour = retour else { return } // annulé : on reste sur la page de connexion
-            self?.traiterLien(retour)
-        }
-        session.presentationContextProvider = self
-        // Partager les cookies de Safari : le client y est déjà connecté à
-        // Google, ses vérifications (« c'est bien vous ? ») y aboutissent.
-        session.prefersEphemeralWebBrowserSession = false
-        sessionConnexion = session
-        session.start()
-    }
-
-    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        view.window ?? ASPresentationAnchor()
-    }
-
-    private static func fabriquerDefi() -> String {
-        var graine = [UInt8](repeating: 0, count: 24)
-        _ = SecRandomCopyBytes(kSecRandomDefault, graine.count, &graine)
-        return Data(graine).base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
+        guard lien.scheme == "rapporteur", lien.host == "connexion" else { return }
+        toile.load(URLRequest(url: Self.site.appendingPathComponent("connexion")))
     }
 
     // MARK: - Où la vue web a le droit d'aller
@@ -121,44 +63,24 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = action.request.url else { decisionHandler(.cancel); return }
-        let schema = url.scheme?.lowercased() ?? ""
-
-        // Écrire à l'assistance depuis /aide, appeler : le téléphone prend le relais.
-        if schema == "mailto" || schema == "tel" {
-            UIApplication.shared.open(url); decisionHandler(.cancel); return
+        let destination = PolitiqueNavigation.destination(url,
+            cadrePrincipal: action.targetFrame?.isMainFrame,
+            sourcePrincipale: action.sourceFrame.isMainFrame,
+            clic: action.navigationType == .linkActivated)
+        switch destination {
+        case .permettre: decisionHandler(.allow); return
+        case .refuser: break
+        case .externe: UIApplication.shared.open(url)
+        case .charger: webView.load(action.request)
+        case .accueil(let anglais): chargerAccueil(anglais: anglais)
+        case .connexion(let anglais):
+            var composants = URLComponents(url: Self.site.appendingPathComponent(anglais ? "en/connexion" : "connexion"),
+                                           resolvingAgainstBaseURL: false)!
+            composants.queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.filter { $0.name == "retour" }
+            if let connexion = composants.url { webView.load(URLRequest(url: connexion)) }
+        case .retourConnexion: traiterLien(url)
         }
-        if schema == "rapporteur" { traiterLien(url); decisionHandler(.cancel); return }
-        if schema != "https" && schema != "http" && schema != "file" && schema != "about" {
-            UIApplication.shared.open(url); decisionHandler(.cancel); return
-        }
-
-        let hote = url.host?.lowercased() ?? ""
-        if Self.hotes.contains(hote) {
-            let chemin = url.path
-            // Le clic sur la marque ramène à l'accueil de l'application, pas
-            // à la page commerciale.
-            if chemin.isEmpty || chemin == "/" { chargerAccueil(); decisionHandler(.cancel); return }
-            if chemin == "/en" || chemin == "/en/" { chargerAccueil(anglais: true); decisionHandler(.cancel); return }
-            if chemin == "/api/connexion" && action.targetFrame?.isMainFrame ?? true {
-                ouvrirLaConnexion(url); decisionHandler(.cancel); return
-            }
-            // Version App Store : aucun achat dans l'application.
-            if chemin.hasPrefix("/tarifs") || chemin.hasPrefix("/paiement")
-                || chemin.hasPrefix("/en/tarifs") || chemin.hasPrefix("/en/paiement") {
-                chargerAccueil(anglais: chemin.hasPrefix("/en/")); decisionHandler(.cancel); return
-            }
-            // Un lien « nouvelle fenêtre » vers notre site : dans la même vue.
-            if action.targetFrame == nil { webView.load(URLRequest(url: url)); decisionHandler(.cancel); return }
-            decisionHandler(.allow); return
-        }
-
-        if schema == "file" || schema == "about" { decisionHandler(.allow); return }
-
-        // Caisses de paiement : lettre morte dans la version App Store.
-        if hote.hasSuffix(".stripe.com") || hote.hasSuffix(".cinetpay.com") { decisionHandler(.cancel); return }
-
-        // Tout autre site s'ouvre dans Safari : l'application ne montre que le nôtre.
-        UIApplication.shared.open(url)
         decisionHandler(.cancel)
     }
 
@@ -219,12 +141,8 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        // window.open : décidé par decidePolicyFor (targetFrame nil) ; jamais
-        // de seconde vue.
-        if let url = navigationAction.request.url {
-            if Self.hotes.contains(url.host?.lowercased() ?? "") { webView.load(URLRequest(url: url)) }
-            else { UIApplication.shared.open(url) }
-        }
+        // Toute navigation, y compris target=_blank, est traitée par la même
+        // politique. Aucun second chemin ne peut ouvrir Safari depuis un cadre.
         return nil
     }
 }
