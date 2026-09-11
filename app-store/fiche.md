@@ -58,10 +58,13 @@ PENSÉ POUR LE TERRAIN
 
 ESSAI GRATUIT
 Trois comptes rendus offerts à l'inscription, avec toutes les fonctionnalités.
-
-Rapporteur existe aussi sur Android, Windows et directement au navigateur :
-https://lerapporteur.com
 ```
+
+> **NE JAMAIS remettre la ligne « Rapporteur existe aussi sur Android, Windows
+> et directement au navigateur ».** Elle a coûté le refus du 11/09/2026,
+> `2.3.10 Performance: Accurate Metadata` : « Revise the app's description to
+> remove Android references ». La fiche App Store ne nomme aucune autre
+> plateforme, et ne renvoie pas au site.
 
 ## Mots-clés (100 car. max, séparés par des virgules)
 
@@ -134,5 +137,8 @@ HOW TO TEST
 
 - Nom : `Rapporteur — Meeting Reports` · Sous-titre : `Your meetings, written for you`
 - Promotionnel : `Three meeting reports free when you sign up. Set the iPhone down, run the meeting: the document arrives by email.`
-- Description : reprendre la version anglaise du site (`/en`), mêmes sections.
+- Description : **en place depuis le 11/09/2026** (1406 caractères) — elle était
+  restée en FRANÇAIS dans la fiche anglaise jusque-là. Mêmes sections que le
+  français : HOW IT WORKS, THREE WAYS TO RECORD, FAITHFUL TO THE FACTS, BUILT
+  FOR THE FIELD, FREE TRIAL. Aucune autre plateforme nommée.
 - Mots-clés : `meeting report,minutes,recorder,transcription,meeting notes,AI,dictaphone,summary`
