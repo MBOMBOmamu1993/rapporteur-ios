@@ -8,7 +8,7 @@ glossaire : « meeting report », jamais « minutes » seul.
 ## Identité
 
 - **Nom** (30 car. max) : `Rapporteur — Comptes rendus`
-- **Sous-titre** (30 car. max) : `Vos réunions, rédigées pour vous`
+- **Sous-titre** (30 car. max) : `Vos réunions, déjà rédigées` (posé le 14/09/2026 sur la version 1.1.6 ; l'ancien « Vos réunions, rédigées pour vous » faisait 32 caractères et n'avait jamais été enregistré : le champ était VIDE)
 - **Bundle ID** : `com.lerapporteur.mobile` — **définitif** une fois le premier build téléversé
 - **SKU** : `rapporteur-ios`
 - **Catégorie principale** : Productivity — secondaire : Business
@@ -68,7 +68,7 @@ Trois comptes rendus offerts à l'inscription, avec toutes les fonctionnalités.
 
 ## Mots-clés (100 car. max, séparés par des virgules)
 
-`compte rendu,réunion,enregistreur,transcription,procès-verbal,dictaphone,notes,IA,minutes,meeting`
+`compte rendu,réunion,enregistreur vocal,transcription,procès-verbal,dictaphone,prise de notes,IA,PV` (99 car., 14/09/2026 — règles du tech talk Apple 110358 : jamais le nom de l'app ni la catégorie, pas de pluriels, virgules sans espace)
 
 ## Nouveautés de cette version
 
@@ -135,10 +135,41 @@ HOW TO TEST
 
 ## Traduction anglaise (U.S.)
 
-- Nom : `Rapporteur — Meeting Reports` · Sous-titre : `Your meetings, written for you`
+- Nom : `Rapporteur — Meeting Reports` · Sous-titre : `Your meetings, already written` (30 car., posés le 14/09/2026 sur la 1.1.6)
 - Promotionnel : `Three meeting reports free when you sign up. Set the iPhone down, run the meeting: the document arrives by email.`
 - Description : **en place depuis le 11/09/2026** (1406 caractères) — elle était
   restée en FRANÇAIS dans la fiche anglaise jusque-là. Mêmes sections que le
   français : HOW IT WORKS, THREE WAYS TO RECORD, FAITHFUL TO THE FACTS, BUILT
   FOR THE FIELD, FREE TRIAL. Aucune autre plateforme nommée.
-- Mots-clés : `meeting report,minutes,recorder,transcription,meeting notes,AI,dictaphone,summary`
+- Mots-clés : `meeting report,minutes,voice recorder,transcription,meeting notes,AI,dictaphone,summary,secretary` (97 car., 14/09/2026 ; jusque-là la fiche anglaise portait les mots-clés FRANÇAIS)
+
+## 14/09/2026 — approbation, version 1.1.6 en préparation, quatre langues
+
+L'application 1.1.5 (5) est **approuvée et en ligne** (« Prête pour la
+distribution », `apps.apple.com/app/id6809614915`). Ses visuels sont figés :
+tout ce qui suit est posé sur la **version 1.1.6** créée le jour même dans
+App Store Connect, et ne paraîtra qu'à sa publication.
+
+Fait par l'API App Store Connect (`meetingrec-web/outils/demo/asc-api.mjs`,
+clé Admin `J5KDJK52QC`, fichier `.p8` dans Downloads) — le gestionnaire des
+visuels du navigateur refuse les vidéos envoyées par automate et mélange
+l'ordre des captures :
+
+- **Captures 6,9"** (1320 × 2868), cinq compositions par langue (titre, phrase,
+  écran réel dans un cadre) : `captures/6.9/{fr,en,pt,es}/0N-*.png`, produites
+  par `outils/demo/captures-appstore.mjs` (`--langues fr,en,pt,es`).
+- **Aperçu vidéo** 886 × 1920, 28 s, H.264 30 i/s + piste stéréo muette :
+  `apercu/{fr,en,pt,es}/apercu-iphone.mp4`, produit par
+  `outils/demo/apercu-appstore.mjs`.
+- **Localisations** : `fr-FR`, `en-US`, et nouvelles `pt-PT` (« Rapporteur —
+  Atas de reunião » / « As suas reuniões, já escritas ») et `es-ES`
+  (« Rapporteur — Actas de reunión » / « Sus reuniones, ya redactadas »),
+  description, texte promotionnel, mots-clés et nouveautés traduits par
+  `claude -p` (consigne : limites de caractères, glossaire ata/acta).
+- **Nouveautés 1.1.6** (à relire avant soumission) : comptes rendus
+  multilingues, affichage pt/es, zone sûre iPhone/iPad.
+- **Candidature « En vedette »** envoyée le 14/09/2026 à 09 h 37 (brouillon du
+  8/09 complété, type Lancement de l'app).
+
+Il manque à la 1.1.6 : le **build** (le natif attend Google Play, voir
+`rapporteur-natif-1-1-6-en-attente`).
