@@ -171,5 +171,12 @@ l'ordre des captures :
 - **Candidature « En vedette »** envoyée le 14/09/2026 à 09 h 37 (brouillon du
   8/09 complété, type Lancement de l'app).
 
-Il manque à la 1.1.6 : le **build** (le natif attend Google Play, voir
-`rapporteur-natif-1-1-6-en-attente`).
+**1.1.6 soumise à l'examen le 14/09/2026 à 10 h 13** (ordre de Felly) : build 6
+par le workflow Publier (`gh workflow run publier.yml -f version=1.1.6`, numéro
+de build = numéro de run), rattaché et envoyé par `asc-api.mjs build 6` puis
+`asc-api.mjs soumettre` ; publication automatique après approbation. Le natif
+1.1.6 = 1.1.5 + le durcissement du pont (5e8fd5a) — toujours pas de bouton
+d'achat, faute d'entitlement. Une localisation sans `supportUrl`/`marketingUrl`
+et `privacyPolicyUrl` bloque la soumission (409 sans détail) : pt/es corrigées.
+Le code d'examen (`EXAMEN_CODE`) a été REMIS sur Vercel pour la durée de
+l'examen ; le retirer à l'approbation.
