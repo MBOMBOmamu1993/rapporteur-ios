@@ -194,3 +194,11 @@ aussitôt « Une autre application a pris le microphone » (jumelles fr/en/pt/es
 À publier : `gh workflow run publier.yml -f version=1.1.7` après fusion, puis
 nouveautés « L'application prévient dès qu'une autre application prend le micro
 et reprend d'elle-même l'enregistrement ».
+
+**1.1.7 soumise à l'examen le 01/10/2026 à 14 h 15 UTC** (ordre de Felly) : PR #3 fusionnée
+(aca7724), build 7 par le workflow Publier (run 36873165580), version créée et textes
+(nouveautés + promotionnel, fr/en/pt/es) posés par `asc-api.mjs creer-version 1.1.7` et
+`texte`, rattaché par `asc-api.mjs build 7`, envoyé par `asc-api.mjs soumettre`
+(dossier 7b72de5b…, WAITING_FOR_REVIEW). App Store Connect ne recopie ni le texte
+promotionnel ni les nouveautés d'une version à l'autre : les reposer à chaque version.
+`EXAMEN_CODE` était déjà en place sur Vercel.
