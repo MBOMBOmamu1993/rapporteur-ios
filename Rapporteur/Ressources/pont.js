@@ -52,6 +52,10 @@
     capture: {
       /* Poussé par l'application dix fois par seconde, à l'échelle du vu-mètre. */
       niveau: 0,
+      /* Poussé avec le niveau : depuis combien de secondes le système a retiré
+         le micro à l'application (appel, Siri, autre application) — 0 tant que
+         la capture tourne. La salle le dit au client sans attendre. */
+      interrompueSec: 0,
       demarrer: function () { return appeler("demarrer"); },
       pause: function () { return appeler("pause"); },
       reprendre: function () { return appeler("reprendre"); },

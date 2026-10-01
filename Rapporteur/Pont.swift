@@ -153,13 +153,22 @@ final class Pont: NSObject, WKScriptMessageHandler {
         suivant()
     }
 
-    /// Le vu-mètre : dix relevés par seconde, poussés dans la page.
+    /// Le vu-mètre : dix relevés par seconde, poussés dans la page — avec, à
+    /// côté, depuis combien de secondes le système nous a retiré le micro
+    /// (0 = la capture tourne). Toutes les deux secondes, le chien de garde de
+    /// l'enregistreur vérifie que le moteur tourne encore et le relance sinon.
     private func lancerLeNiveau() {
         minuterieNiveau?.invalidate()
+        var tics = 0
         minuterieNiveau = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self = self, self.enregistreur.enCours else { return }
+            tics += 1
+            if tics % 20 == 0 { self.enregistreur.surveiller() }
             let n = self.enregistreur.niveau
-            self.vue?.evaluateJavaScript("window.rapporteurIOS && (window.rapporteurIOS.capture.niveau = \(n));")
+            let i = self.enregistreur.interrompuSec
+            self.vue?.evaluateJavaScript(
+                "window.rapporteurIOS && (window.rapporteurIOS.capture.niveau = \(n), " +
+                "window.rapporteurIOS.capture.interrompueSec = \(i));")
         }
     }
 
