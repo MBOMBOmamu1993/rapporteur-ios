@@ -202,3 +202,9 @@ et reprend d'elle-même l'enregistrement ».
 (dossier 7b72de5b…, WAITING_FOR_REVIEW). App Store Connect ne recopie ni le texte
 promotionnel ni les nouveautés d'une version à l'autre : les reposer à chaque version.
 `EXAMEN_CODE` était déjà en place sur Vercel.
+
+**Build 7 remplacé par le build 8 le 01/10/2026 à 14 h 55 UTC** : PR #4 (reprise robuste —
+pouls du flux, tap reposé au format courant, format du fichier fixe) fusionnée (9cb4ac9), run
+Publier 36878887525 ; dossier 7b72de5b annulé par `asc-api.mjs retirer` (la version passe
+DEVELOPER_REJECTED, textes intacts), `build 8`, `soumettre` → dossier d9477c3d,
+WAITING_FOR_REVIEW. Un seul examen Apple pour la 1.1.7.
