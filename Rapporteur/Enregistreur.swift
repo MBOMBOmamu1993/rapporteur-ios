@@ -21,7 +21,11 @@ import UIKit
 ///    page en est avertie (`interrompuSec`) et un chien de garde réessaie
 ///    toutes les deux secondes — le 01/10/2026, une réunion de 26 minutes est
 ///    arrivée en 39 secondes d'audio, le micro pris par un appel sur le même
-///    iPhone et jamais repris.
+///    iPhone et jamais repris. Le chien de garde juge au FLUX, pas au seul
+///    état du moteur : trois secondes sans tampon, et il redémarre. À la
+///    reprise, le tap est reposé au format courant du micro (un appel pris
+///    sur des écouteurs peut en changer la fréquence) et les tampons sont
+///    convertis vers le format du fichier, qui ne change jamais.
 ///
 /// La page reste maîtresse de tout le reste : sondes, file d'attente, envoi.
 final class Enregistreur {
@@ -32,6 +36,16 @@ final class Enregistreur {
     private var fichier: AVAudioFile?
     private(set) var urlFichier: URL?
     private var convertisseur: AVAudioConverter?
+    /// Le format du fichier (flottant mono, fréquence du micro au départ) :
+    /// fixé à l'ouverture, il ne bouge plus de toute la séance.
+    private var formatFichier: AVAudioFormat?
+    /// Le format avec lequel le tap est posé ; nil tant qu'aucun tap n'est posé.
+    private var formatTap: AVAudioFormat?
+    /// Du mono au format du tap vers le format du fichier, quand la fréquence
+    /// du micro a changé en cours de séance ; nil quand elles coïncident.
+    private var convertisseurFichier: AVAudioConverter?
+    /// Le dernier tampon reçu du micro : le pouls que surveille le chien de garde.
+    private var dernierTampon = Date()
     private let formatAnneau = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: true)!
     private var anneau: AnneauPCM
     /// L'anneau est écrit par le fil audio et lu par `extrait()` : un verrou.
@@ -115,24 +129,69 @@ final class Enregistreur {
         fichier = try AVAudioFile(forWriting: url, settings: reglages,
                                   commonFormat: .pcmFormatFloat32, interleaved: false)
         urlFichier = url
-        convertisseur = AVAudioConverter(from: formatMono, to: formatAnneau)
+        formatFichier = formatMono
+        formatTap = nil
+        convertisseurFichier = nil
         verrou.lock(); anneau.vider(); verrou.unlock()
         enPause = false
         niveau = 0
         interrompuDepuis = nil
 
-        entree.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] tampon, _ in
-            self?.traiter(tampon, formatMono: formatMono)
-        }
+        try poserLeTap()
         observerLesInterruptions()
         moteur.prepare()
+        dernierTampon = Date()
         try moteur.start()
         enCours = true
+    }
+
+    /// Pose le tap sur l'entrée au format COURANT du micro — ou le repose s'il
+    /// a changé. Après un appel pris sur des écouteurs Bluetooth, le micro peut
+    /// revenir à une autre fréquence : un tap posé pour 48 kHz recevrait des
+    /// tampons inattendus et le fichier les refuserait un à un, en silence.
+    /// Le fichier garde sa fréquence d'origine ; les tampons y sont convertis.
+    private func poserLeTap() throws {
+        let entree = moteur.inputNode
+        let format = entree.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            throw Erreur.moteur("format d'entrée indisponible")
+        }
+        if let actuel = formatTap, actuel.sampleRate == format.sampleRate, actuel.channelCount == format.channelCount { return }
+        guard let cible = formatFichier,
+              let mono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: format.sampleRate,
+                                       channels: 1, interleaved: false) else {
+            throw Erreur.moteur("format mono impossible")
+        }
+        if formatTap != nil { entree.removeTap(onBus: 0) }
+        formatTap = format
+        convertisseurFichier = format.sampleRate == cible.sampleRate ? nil : AVAudioConverter(from: mono, to: cible)
+        convertisseur = AVAudioConverter(from: mono, to: formatAnneau)
+        entree.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] tampon, _ in
+            self?.traiter(tampon, formatMono: mono)
+        }
+    }
+
+    /// Un tampon converti d'un format PCM à un autre (fréquence, type) : un
+    /// seul tampon en entrée, un seul en sortie.
+    private func convertir(_ source: AVAudioPCMBuffer, par convertisseur: AVAudioConverter,
+                           vers format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        let capacite = AVAudioFrameCount(Double(source.frameLength) * format.sampleRate / source.format.sampleRate) + 16
+        guard let sortie = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacite) else { return nil }
+        var servi = false
+        var erreur: NSError?
+        convertisseur.convert(to: sortie, error: &erreur) { _, statut in
+            if servi { statut.pointee = .noDataNow; return nil }
+            servi = true
+            statut.pointee = .haveData
+            return source
+        }
+        return erreur == nil ? sortie : nil
     }
 
     // MARK: - Chaque tampon
 
     private func traiter(_ tampon: AVAudioPCMBuffer, formatMono: AVAudioFormat) {
+        dernierTampon = Date()
         guard !enPause, let fichier = fichier else { niveau = 0; return }
         guard let mono = versMono(tampon, format: formatMono) else { return }
 
@@ -145,25 +204,25 @@ final class Enregistreur {
             niveau = min(1, rms * 4.5)
         }
 
-        do { try fichier.write(from: mono) } catch { /* un tampon perdu, pas la séance */ }
+        // Le fichier reçoit le format fixé au départ : si le micro a changé de
+        // fréquence en cours de séance, on convertit — jamais on ne jette.
+        let pourFichier: AVAudioPCMBuffer?
+        if let convertisseurFichier = convertisseurFichier, let cible = formatFichier {
+            pourFichier = convertir(mono, par: convertisseurFichier, vers: cible)
+        } else {
+            pourFichier = mono
+        }
+        if let pourFichier = pourFichier {
+            do { try fichier.write(from: pourFichier) } catch { /* un tampon perdu, pas la séance */ }
+        }
 
         // L'anneau des trois dernières minutes, à 16 kHz.
-        if let convertisseur = convertisseur {
-            let capacite = AVAudioFrameCount(Double(mono.frameLength) * formatAnneau.sampleRate / formatMono.sampleRate) + 16
-            guard let sortie = AVAudioPCMBuffer(pcmFormat: formatAnneau, frameCapacity: capacite) else { return }
-            var servi = false
-            var erreur: NSError?
-            convertisseur.convert(to: sortie, error: &erreur) { _, statut in
-                if servi { statut.pointee = .noDataNow; return nil }
-                servi = true
-                statut.pointee = .haveData
-                return mono
-            }
-            if erreur == nil, let int16 = sortie.int16ChannelData?[0] {
-                verrou.lock()
-                anneau.ajouter(int16, Int(sortie.frameLength))
-                verrou.unlock()
-            }
+        if let convertisseur = convertisseur,
+           let sortie = convertir(mono, par: convertisseur, vers: formatAnneau),
+           let int16 = sortie.int16ChannelData?[0] {
+            verrou.lock()
+            anneau.ajouter(int16, Int(sortie.frameLength))
+            verrou.unlock()
         }
     }
 
@@ -191,6 +250,8 @@ final class Enregistreur {
             moteur.inputNode.removeTap(onBus: 0)
             moteur.stop()
             fichier = nil          // ferme et finalise le conteneur
+            formatTap = nil
+            convertisseurFichier = nil
             url = urlFichier
             enCours = false
             niveau = 0
@@ -291,6 +352,9 @@ final class Enregistreur {
         if moteur.isRunning { interrompuDepuis = nil; return }
         do {
             try AVAudioSession.sharedInstance().setActive(true, options: [])
+            try poserLeTap()
+            moteur.prepare()
+            dernierTampon = Date()
             try moteur.start()
             interrompuDepuis = nil
         } catch {
@@ -305,7 +369,17 @@ final class Enregistreur {
     func surveiller() {
         file.async {
             guard self.enCours else { return }
-            if self.moteur.isRunning { self.interrompuDepuis = nil } else { self.relancer() }
+            if !self.moteur.isRunning { self.relancer(); return }
+            // Le moteur se dit en marche, mais plus aucun tampon n'arrive depuis
+            // trois secondes : micro repris sans arrêt franc, route audio changée.
+            // On l'arrête et on repart proprement — au format courant du micro.
+            if Date().timeIntervalSince(self.dernierTampon) > 3 {
+                self.moteur.stop()
+                self.marquerInterrompu()
+                self.relancer()
+            } else {
+                self.interrompuDepuis = nil
+            }
         }
     }
 }
