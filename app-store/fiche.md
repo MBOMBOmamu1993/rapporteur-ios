@@ -180,3 +180,17 @@ d'achat, faute d'entitlement. Une localisation sans `supportUrl`/`marketingUrl`
 et `privacyPolicyUrl` bloque la soumission (409 sans détail) : pt/es corrigées.
 Le code d'examen (`EXAMEN_CODE`) a été REMIS sur Vercel pour la durée de
 l'examen ; le retirer à l'approbation.
+
+## 01/10/2026 — micro perdu en séance : correctif pour la 1.1.7
+
+Une réunion de 26 minutes est arrivée en 39 secondes d'audio : le système avait
+donné le micro à une autre application (appel ou réunion tenue sur le même
+iPhone), le moteur s'était arrêté et la fin d'interruption n'a jamais été suivie
+d'effet. Branche `capture/interruption-micro` : l'enregistreur marque
+l'interruption dès son début (`interrompuSec`, poussé dans la page avec le
+niveau), la relance est tentée à la fin de l'interruption, au retour au premier
+plan et par un chien de garde toutes les deux secondes ; la salle du site affiche
+aussitôt « Une autre application a pris le microphone » (jumelles fr/en/pt/es).
+À publier : `gh workflow run publier.yml -f version=1.1.7` après fusion, puis
+nouveautés « L'application prévient dès qu'une autre application prend le micro
+et reprend d'elle-même l'enregistrement ».

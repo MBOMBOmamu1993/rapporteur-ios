@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import UIKit
 
 /// La capture native — la seule vraie raison d'être de l'application.
 ///
@@ -16,7 +17,11 @@ import Foundation
 ///  - le mode audio en arrière-plan (Info.plist) et une session « record »
 ///    active tiennent la capture écran éteint ;
 ///  - les interruptions (appel entrant, changement d'écouteurs) relancent le
-///    moteur dès qu'elles cessent.
+///    moteur dès qu'elles cessent ; tant que le micro n'est pas rendu, la
+///    page en est avertie (`interrompuSec`) et un chien de garde réessaie
+///    toutes les deux secondes — le 01/10/2026, une réunion de 26 minutes est
+///    arrivée en 39 secondes d'audio, le micro pris par un appel sur le même
+///    iPhone et jamais repris.
 ///
 /// La page reste maîtresse de tout le reste : sondes, file d'attente, envoi.
 final class Enregistreur {
@@ -39,6 +44,15 @@ final class Enregistreur {
     /// Le niveau courant, déjà à l'échelle du vu-mètre de la page :
     /// racine du carré moyen × 4,5, borné à 1 (même formule que `niveau()`).
     private(set) var niveau: Float = 0
+    /// Depuis quand le système nous a retiré le micro — appel, Siri, autre
+    /// application — et arrêté le moteur : nil tant que la capture tourne.
+    private(set) var interrompuDepuis: Date?
+    /// Ce que le pont pousse dans la page avec le niveau : les secondes
+    /// écoulées depuis la perte du micro, 0 si tout va bien.
+    var interrompuSec: Int {
+        guard let depuis = interrompuDepuis else { return 0 }
+        return max(1, Int(Date().timeIntervalSince(depuis)))
+    }
 
     init() {
         anneau = AnneauPCM(capacite: 16_000 * 180) // trois minutes
@@ -105,6 +119,7 @@ final class Enregistreur {
         verrou.lock(); anneau.vider(); verrou.unlock()
         enPause = false
         niveau = 0
+        interrompuDepuis = nil
 
         entree.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] tampon, _ in
             self?.traiter(tampon, formatMono: formatMono)
@@ -235,10 +250,26 @@ final class Enregistreur {
             guard let self = self, self.enCours,
                   let brut = avis.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
                   let type = AVAudioSession.InterruptionType(rawValue: brut) else { return }
-            if type == .ended {
-                // Un appel a pris le micro ; il le rend : on repart, sans geste.
+            switch type {
+            case .began:
+                // Un appel, Siri, une autre application : le système nous retire
+                // le micro et arrête le moteur. On le note tout de suite — la
+                // page le dira au client — et on attend qu'il soit rendu.
+                self.file.async { self.marquerInterrompu() }
+            case .ended:
+                // Le micro est rendu : on repart, sans geste.
                 self.file.async { self.relancer() }
+            @unknown default:
+                break
             }
+        })
+        // Le retour au premier plan est une occasion de plus de repartir : la
+        // fin d'interruption d'un appel qui a duré n'est pas toujours suivie
+        // d'effet quand elle arrive en arrière-plan.
+        observateurs.append(centre.addObserver(forName: UIApplication.didBecomeActiveNotification,
+                                               object: nil, queue: nil) { [weak self] _ in
+            guard let self = self, self.enCours else { return }
+            self.file.async { self.relancer() }
         })
         observateurs.append(centre.addObserver(forName: .AVAudioEngineConfigurationChange,
                                                object: moteur, queue: nil) { [weak self] _ in
@@ -247,10 +278,35 @@ final class Enregistreur {
         })
     }
 
+    private func marquerInterrompu() {
+        if interrompuDepuis == nil { interrompuDepuis = Date() }
+        niveau = 0
+    }
+
+    /// Remet le moteur en route s'il s'est arrêté. Si le micro est encore
+    /// tenu ailleurs, `start()` échoue : l'interruption reste marquée et le
+    /// chien de garde (`surveiller`) réessaiera.
     private func relancer() {
-        guard enCours, !moteur.isRunning else { return }
-        try? AVAudioSession.sharedInstance().setActive(true, options: [])
-        try? moteur.start()
+        guard enCours else { return }
+        if moteur.isRunning { interrompuDepuis = nil; return }
+        do {
+            try AVAudioSession.sharedInstance().setActive(true, options: [])
+            try moteur.start()
+            interrompuDepuis = nil
+        } catch {
+            marquerInterrompu()
+        }
+    }
+
+    /// Le chien de garde, appelé toutes les deux secondes par le pont tant
+    /// que la séance dure : un moteur arrêté — appel qui dure, relance
+    /// refusée, fin d'interruption jamais reçue — repart dès que le micro est
+    /// rendu, et la page sait pendant ce temps que rien n'est capté.
+    func surveiller() {
+        file.async {
+            guard self.enCours else { return }
+            if self.moteur.isRunning { self.interrompuDepuis = nil } else { self.relancer() }
+        }
     }
 }
 
