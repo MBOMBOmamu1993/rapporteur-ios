@@ -30,10 +30,12 @@ que pour Android.
 
 ## Ce qui diffère d'Android, et pourquoi
 
-- **Pas de réunion ouverte DANS l'application** (`ouvrirReunion` absent) :
-  iOS donne le micro à une seule application à la fois. Une réunion Teams ou
-  Zoom tenue sur le même iPhone garderait le micro ; la salle le dit et
-  conseille le haut-parleur d'un autre appareil.
+- **La réunion tenue sur l'iPhone s'ouvre DANS l'application**
+  (`ouvrirReunion`, `PanneauReunion`), comme sur Android : tenue dans
+  l'application Teams ou Zoom, elle garderait le micro (iOS le donne à
+  l'appel) ; ouverte ici en version web, dans le panneau du haut, elle partage
+  le micro avec l'enregistreur. Le panneau se présente comme Safari sur Mac :
+  à un téléphone, Teams et Zoom ne proposent que leur application.
 - **Pas d'achat** : règle 3.1.1 de l'App Store, comme la règle Paiements de
   Google Play. Le solde reste jugé par le serveur.
 - **Fichier `.m4a`** (AAC) et non WebM/Opus : c'est ce qu'iOS encode ; le site

@@ -9,7 +9,9 @@ import WebKit
 ///  - Turnstile reste dans son cadre web, sans ouvrir Safari ;
 ///  - version App Store : tarifs et caisses ne se chargent jamais (règle 3.1.1),
 ///    le site les masque déjà — ceci est la ceinture et les bretelles ;
-///  - les autres sites s'ouvrent dans Safari ; hors connexion, un écran local.
+///  - les autres sites s'ouvrent dans Safari ; hors connexion, un écran local ;
+///  - une réunion en ligne tenue sur ce téléphone s'ouvre DANS l'application,
+///    dans le panneau du haut (`PanneauReunion`), la salle restant dessous.
 final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDelegate {
 
     static let site = URL(string: "https://lerapporteur.com")!
@@ -17,6 +19,10 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
 
     private var toile: WKWebView!
     private let pont = Pont()
+    private let panneau = PanneauReunion(frame: .zero)
+    private var toileEnHaut: NSLayoutConstraint!
+    private var toileSousPanneau: NSLayoutConstraint!
+    private var panneauOuvert = false
 
     override func loadView() {
         let configuration = WKWebViewConfiguration()
@@ -37,7 +43,32 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
         toile.backgroundColor = UIColor(named: "Fond")
         toile.isOpaque = false
         pont.attacher(a: toile)
-        view = toile
+        pont.surOuvrirReunion = { [weak self] lien in self?.ouvrirReunion(lien) }
+        pont.surFermerReunion = { [weak self] in self?.fermerReunion() }
+        panneau.surFermer = { [weak self] in self?.fermerReunion() }
+
+        // La salle occupe tout l'écran. Une réunion ouverte ici prend le haut,
+        // comme sur Android, et la salle reste dessous, « Démarrer » à portée.
+        let fond = UIView()
+        fond.backgroundColor = UIColor(named: "Fond")
+        for vue in [toile!, panneau] as [UIView] {
+            vue.translatesAutoresizingMaskIntoConstraints = false
+            fond.addSubview(vue)
+        }
+        panneau.isHidden = true
+        toileEnHaut = toile.topAnchor.constraint(equalTo: fond.topAnchor)
+        toileSousPanneau = toile.topAnchor.constraint(equalTo: panneau.bottomAnchor)
+        NSLayoutConstraint.activate([
+            panneau.topAnchor.constraint(equalTo: fond.topAnchor),
+            panneau.leadingAnchor.constraint(equalTo: fond.leadingAnchor),
+            panneau.trailingAnchor.constraint(equalTo: fond.trailingAnchor),
+            panneau.heightAnchor.constraint(equalTo: fond.heightAnchor, multiplier: 0.58),
+            toileEnHaut,
+            toile.leadingAnchor.constraint(equalTo: fond.leadingAnchor),
+            toile.trailingAnchor.constraint(equalTo: fond.trailingAnchor),
+            toile.bottomAnchor.constraint(equalTo: fond.bottomAnchor),
+        ])
+        view = fond
     }
 
     override func viewDidLoad() {
@@ -45,7 +76,43 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
         chargerAccueil()
     }
 
-    override var preferredStatusBarStyle: UIStatusBarStyle { .default }
+    override var preferredStatusBarStyle: UIStatusBarStyle { panneauOuvert ? .lightContent : .default }
+
+    // MARK: - La réunion tenue sur ce téléphone, DANS l'application
+
+    /// Appelé par le pont : la salle demande d'ouvrir la réunion ici.
+    private func ouvrirReunion(_ lien: URL) {
+        guard let ici = toile.url, ici.scheme == "https",
+              Self.hotes.contains(ici.host?.lowercased() ?? "") else { return }
+        panneau.ouvrir(lien, langue: langueDeLaSalle(ici))
+        guard !panneauOuvert else { return }
+        panneauOuvert = true
+        panneau.isHidden = false
+        toileEnHaut.isActive = false
+        toileSousPanneau.isActive = true
+        // Écran éteint, iOS coupe le micro d'une page web : la réunion
+        // n'entendrait plus le client. L'écran reste donc allumé.
+        UIApplication.shared.isIdleTimerDisabled = true
+        setNeedsStatusBarAppearanceUpdate()
+        UIView.animate(withDuration: 0.25) { self.view.layoutIfNeeded() }
+    }
+
+    private func fermerReunion() {
+        guard panneauOuvert else { return }
+        panneauOuvert = false
+        panneau.vider()
+        toileSousPanneau.isActive = false
+        toileEnHaut.isActive = true
+        panneau.isHidden = true
+        UIApplication.shared.isIdleTimerDisabled = false
+        setNeedsStatusBarAppearanceUpdate()
+        UIView.animate(withDuration: 0.25) { self.view.layoutIfNeeded() }
+    }
+
+    private func langueDeLaSalle(_ url: URL) -> String {
+        let premier = url.path.split(separator: "/").first.map(String.init) ?? ""
+        return ["en", "pt", "es"].contains(premier) ? premier : "fr"
+    }
 
     private func chargerAccueil(anglais: Bool = false) {
         toile.load(URLRequest(url: Self.site.appendingPathComponent(anglais ? "en/mobile" : "mobile")))
