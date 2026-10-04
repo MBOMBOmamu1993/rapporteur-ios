@@ -45,6 +45,11 @@ final class Pont: NSObject, WKScriptMessageHandler {
 
     var captureEnCours: Bool { enregistreur.enCours }
 
+    /// La réunion tenue sur ce téléphone s'ouvre DANS l'application : le
+    /// contrôleur pose le panneau du haut, ou le replie.
+    var surOuvrirReunion: ((URL) -> Void)?
+    var surFermerReunion: (() -> Void)?
+
     // MARK: - Réception
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -108,6 +113,19 @@ final class Pont: NSObject, WKScriptMessageHandler {
         case "notifier":
             Notifications.partagees.poser(titre: params["titre"] as? String ?? "Rapporteur",
                                           texte: params["texte"] as? String ?? "")
+            repondre(id, ["ok": true])
+        case "ouvrirReunion":
+            // Un lien https, rien d'autre : la réunion s'ouvre en version web,
+            // dans le panneau du haut, sans aucun pont.
+            let brut = (params["lien"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let lien = URL(string: brut), lien.scheme?.lowercased() == "https",
+                  !(lien.host ?? "").isEmpty else {
+                repondre(id, ["erreur": "lien invalide"]); return
+            }
+            surOuvrirReunion?(lien)
+            repondre(id, ["ok": true])
+        case "fermerReunion":
+            surFermerReunion?()
             repondre(id, ["ok": true])
         case "enregistrementDemarre", "enregistrementTermine":
             // Le pendant du service Android : ici, c'est la session audio

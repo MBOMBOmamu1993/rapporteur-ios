@@ -9,9 +9,10 @@
    « application mobile » — ses branches Android valent, et il lit
    rapporteurIOS là où l'iPhone diffère.
 
-   Pas de ouvrirReunion : sur iPhone, une réunion tenue dans une autre
-   application garde le micro pour elle (le système l'impose) — la salle ne
-   propose donc pas d'ouvrir la réunion ici. */
+   ouvrirReunion : sur iPhone, une réunion tenue dans l'application Teams ou
+   Zoom garde le micro pour elle (le système l'impose). Ouverte ICI, en
+   version web, dans le panneau du haut, elle reste dans notre application :
+   la réunion et l'enregistreur partagent le micro, comme sur Android. */
 (function () {
   "use strict";
   if (window.rapporteurIOS) { return; }
@@ -48,6 +49,10 @@
     enregistrementDemarre: function () { appeler("enregistrementDemarre"); },
     enregistrementTermine: function () { appeler("enregistrementTermine"); },
     notifier: function (titre, texte) { appeler("notifier", { titre: titre, texte: texte }); },
+    ouvrirReunion: function (lien) {
+      appeler("ouvrirReunion", { lien: String(lien || "") }).catch(function () {});
+    },
+    fermerReunion: function () { appeler("fermerReunion").catch(function () {}); },
 
     capture: {
       /* Poussé par l'application dix fois par seconde, à l'échelle du vu-mètre. */

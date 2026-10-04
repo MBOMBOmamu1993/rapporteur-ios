@@ -39,9 +39,14 @@
 			</array>
 		</dict>
 	</array>
-	<!-- Le micro, et rien d'autre : la seule chose que le téléphone apporte. -->
+	<!-- Le micro : la seule chose que le téléphone apporte à l'enregistrement. -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Rapporteur enregistre votre réunion par le microphone pour en rédiger le compte rendu. L'enregistrement continue écran éteint et part vers nos serveurs à la fin de la séance.</string>
+	<!-- La caméra ne sert qu'à une réunion en ligne ouverte DANS l'application
+	     (panneau du haut) : sans cette clé, WebKit refuse toute demande
+	     « caméra et micro » d'un coup, et la réunion n'aurait pas de micro. -->
+	<key>NSCameraUsageDescription</key>
+	<string>La caméra ne sert qu'à une réunion en ligne que vous ouvrez dans Rapporteur, si vous l'allumez : l'image va à la réunion, Rapporteur ne l'enregistre pas.</string>
 	<!-- L'enregistrement continue écran éteint : c'est le mode « audio » qui
 	     l'autorise — la même promesse que le service de premier plan Android. -->
 	<key>UIBackgroundModes</key>
