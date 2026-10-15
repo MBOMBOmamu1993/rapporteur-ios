@@ -53,6 +53,11 @@
       appeler("ouvrirReunion", { lien: String(lien || "") }).catch(function () {});
     },
     fermerReunion: function () { appeler("fermerReunion").catch(function () {}); },
+    /* L'interprète vocal parle à l'oreille : le système baisse les autres
+       applications (YouTube, Teams…), puis les rend (application 1.1.12). */
+    autresSons: function (baisser) {
+      return appeler("autresSons", { baisser: Boolean(baisser) }).catch(function () {});
+    },
 
     capture: {
       /* Poussé par l'application dix fois par seconde, à l'échelle du vu-mètre. */

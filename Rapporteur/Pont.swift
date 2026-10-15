@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import WebKit
 
@@ -127,12 +128,50 @@ final class Pont: NSObject, WKScriptMessageHandler {
         case "fermerReunion":
             surFermerReunion?()
             repondre(id, ["ok": true])
+        case "autresSons":
+            // L'interprète vocal parle à l'oreille : les autres applications
+            // (YouTube, Teams…) baissent leur son le temps qu'il parle.
+            repondre(id, autresSons(baisser: params["baisser"] as? Bool ?? false))
         case "enregistrementDemarre", "enregistrementTermine":
             // Le pendant du service Android : ici, c'est la session audio
             // active qui tient l'application éveillée — rien à faire de plus.
             repondre(id, ["ok": true])
         default:
             repondre(id, ["erreur": "action inconnue"])
+        }
+    }
+
+    // MARK: - Les autres sons pendant l'interprète vocal
+
+    /// Demande de Felly (15/10/2026) : la voix de l'interprète devant celle
+    /// d'origine. Une page ne peut pas toucher au son d'une autre application ;
+    /// la session audio de l'application, si : `.duckOthers` fait baisser les
+    /// autres applications par le système tant qu'elle est active, et
+    /// `.defaultToSpeaker` envoie l'interprète au haut-parleur (pas à l'écouteur
+    /// d'appel, où l'enverrait le micro ouvert). À l'arrêt, la session se retire
+    /// en le disant aux autres (`.notifyOthersOnDeactivation`) : leur son revient.
+    /// Pendant un enregistrement natif, rien : la séance garde ses réglages (et le
+    /// site n'ouvre pas l'interprète pendant un enregistrement sur iPhone).
+    private func autresSons(baisser: Bool) -> [String: Any] {
+        if enregistreur.enCours { return ["ok": false] }
+        let session = AVAudioSession.sharedInstance()
+        do {
+            if baisser {
+                try session.setCategory(.playAndRecord, mode: .default,
+                                        options: [.duckOthers, .defaultToSpeaker, .allowBluetooth])
+                try session.setActive(true)
+            } else {
+                do {
+                    try session.setActive(false, options: .notifyOthersOnDeactivation)
+                } catch {
+                    // Session encore occupée (WebKit) : on retire au moins l'atténuation.
+                    try session.setCategory(.playAndRecord, mode: .default,
+                                            options: [.mixWithOthers, .defaultToSpeaker, .allowBluetooth])
+                }
+            }
+            return ["ok": true]
+        } catch {
+            return ["erreur": error.localizedDescription]
         }
     }
 
