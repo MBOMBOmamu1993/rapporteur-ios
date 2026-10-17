@@ -103,10 +103,16 @@ final class Enregistreur {
            l'avertisseur de silence. Mode « default » — surtout pas
            « voiceChat », dont l'annulation d'écho effacerait précisément les
            voix qui sortent d'un haut-parleur voisin. `mixWithOthers` laisse
-           tourner la lecture d'une réunion rejouée sur ce même téléphone. */
+           tourner la lecture d'une réunion rejouée sur ce même téléphone.
+           `allowBluetoothA2DP` sans `allowBluetooth` (17/10/2026) : des AirPods ou
+           des écouteurs Bluetooth connectés ne prennent jamais le micro — le compte
+           rendu écoute la pièce par le micro de l'iPhone, entrée préférée. */
         try session.setCategory(.playAndRecord, mode: .default,
-                                options: [.allowBluetooth, .defaultToSpeaker, .mixWithOthers])
+                                options: [.allowBluetoothA2DP, .defaultToSpeaker, .mixWithOthers])
         try session.setActive(true, options: [])
+        if let integre = session.availableInputs?.first(where: { $0.portType == .builtInMic }) {
+            try? session.setPreferredInput(integre)
+        }
 
         let entree = moteur.inputNode
         let format = entree.outputFormat(forBus: 0)
