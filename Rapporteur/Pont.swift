@@ -50,6 +50,11 @@ final class Pont: NSObject, WKScriptMessageHandler {
     /// contrôleur pose le panneau du haut, ou le replie.
     var surOuvrirReunion: ((URL) -> Void)?
     var surFermerReunion: (() -> Void)?
+    /// L'interprète et la réunion du panneau (1.1.13) : la salle demande le son des
+    /// correspondants, la parole dans la réunion, et envoie la voix de l'interprète.
+    var surSonReunion: ((Bool, Double) -> Void)?
+    var surParoleReunion: ((Bool, Double) -> Void)?
+    var surVoixReunion: ((String, Int) -> Void)?
 
     // MARK: - Réception
 
@@ -128,6 +133,19 @@ final class Pont: NSObject, WKScriptMessageHandler {
         case "fermerReunion":
             surFermerReunion?()
             repondre(id, ["ok": true])
+        case "sonReunion":
+            // Règle 6 : l'interprète écoute la réunion du panneau à la source.
+            surSonReunion?(params["capter"] as? Bool ?? false, (params["niveau"] as? NSNumber)?.doubleValue ?? 1)
+            repondre(id, ["ok": true])
+        case "paroleReunion":
+            // Règle 7 : les correspondants entendent l'interprète, le client en fond.
+            surParoleReunion?(params["parler"] as? Bool ?? false, (params["niveau"] as? NSNumber)?.doubleValue ?? 1)
+            repondre(id, ["ok": true])
+        case "voixReunion":
+            // Un morceau de la voix de l'interprète, une dizaine par seconde : sans réponse.
+            if let morceau = params["morceau"] as? String, let taux = (params["taux"] as? NSNumber)?.intValue {
+                surVoixReunion?(morceau, taux)
+            }
         case "autresSons":
             // L'interprète vocal parle à l'oreille : les autres applications
             // (YouTube, Teams…) baissent leur son le temps qu'il parle.
@@ -181,6 +199,21 @@ final class Pont: NSObject, WKScriptMessageHandler {
         guard let url = vue?.url, url.scheme == "https",
               url.port == nil || url.port == 443 else { return false }
         return ["lerapporteur.com", "www.lerapporteur.com"].contains(url.host?.lowercased() ?? "")
+    }
+
+    /// L'état de la réunion du panneau, poussé dans la page : elle le lit sans
+    /// attendre (sonReunionPossible, paroleReunionPossible).
+    func etatReunion(possible: Bool) {
+        guard pageDeConfiance else { return }
+        vue?.evaluateJavaScript("window.rapporteurIOS && window.rapporteurIOS._etatReunion({possible: \(possible)});")
+    }
+
+    /// Le son des correspondants (rapporteurSonReunion) ou le micro du client
+    /// (rapporteurMicroReunion), remis à la salle : `recevoir(morceau, taux)` ou `arrete()`.
+    func direReunion(_ objet: String, _ fonction: String, _ argument: String = "") {
+        guard pageDeConfiance, ["rapporteurSonReunion", "rapporteurMicroReunion"].contains(objet),
+              ["recevoir", "arrete"].contains(fonction) else { return }
+        vue?.evaluateJavaScript("window.\(objet) && window.\(objet).\(fonction)(\(argument));")
     }
 
     private func repondre(_ id: Int, _ reponse: [String: Any]) {

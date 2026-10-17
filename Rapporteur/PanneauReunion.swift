@@ -10,9 +10,12 @@ import WebKit
 /// réunion capte le client pour ses correspondants, et l'enregistreur natif
 /// capte le client ET le haut-parleur.
 ///
-/// La page de réunion n'a aucun pont : elle n'obtient que micro et caméra,
-/// et seulement auprès des services de réunion connus.
-final class PanneauReunion: UIView, WKNavigationDelegate, WKUIDelegate {
+/// La page de réunion n'a qu'un pont, `rapporteurReunion` (1.1.13), par lequel la
+/// prise (`prise-reunion.js`) DONNE le son des correspondants, ou le micro du client
+/// pendant que l'interprète parle dans la réunion — seulement quand la salle l'a
+/// demandé, et vérifié ici. Elle n'obtient que micro et caméra, et seulement
+/// auprès des services de réunion connus.
+final class PanneauReunion: UIView, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
 
     /// Les services de réunion auxquels le panneau accorde micro et caméra —
     /// la liste d'Android. Tout autre site s'affiche mais n'obtient rien.
@@ -93,6 +96,16 @@ final class PanneauReunion: UIView, WKNavigationDelegate, WKUIDelegate {
             reunion.trailingAnchor.constraint(equalTo: trailingAnchor),
             reunion.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+
+        // La prise, posée au tout début de chaque page de réunion (avant ses scripts),
+        // et son pont vers l'application — par un relais faible : WebKit retient ses
+        // récepteurs, le panneau ne doit pas se retenir lui-même.
+        let controleur = reunion.configuration.userContentController
+        controleur.add(RelaisFaible(self), name: Self.pontPrise)
+        if let chemin = Bundle.main.url(forResource: "prise-reunion", withExtension: "js"),
+           let source = try? String(contentsOf: chemin, encoding: .utf8) {
+            controleur.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) n'est pas utilisé") }
@@ -113,8 +126,94 @@ final class PanneauReunion: UIView, WKNavigationDelegate, WKUIDelegate {
 
     /// Fermer, c'est quitter la réunion : la page vide coupe micro et caméra.
     func vider() {
+        priseReunion = false
+        paroleReunion = false
         reunion.stopLoading()
         reunion.load(URLRequest(url: URL(string: "about:blank")!))
+    }
+
+    // MARK: - Le son de la réunion, pour l'interprète (iPhone 1.1.13)
+
+    /*
+     * Demandes de Felly (16-17/10/2026), comme sur Android 1.1.11 et 1.1.12 :
+     * l'interprète écoute la réunion ouverte ici à la source — le son des
+     * correspondants, jamais le micro (règle 6) — et, dans l'autre sens, les
+     * correspondants l'entendent parler à la place du client, sa voix devant
+     * (règle 7). La salle demande ; la prise exécute ; ce qu'elle envoie est
+     * vérifié avant d'entrer dans la salle : du base 64, de taille bornée, d'un
+     * service de réunion connu, en HTTPS, et seulement quand la salle l'a demandé.
+     */
+    static let pontPrise = "rapporteurReunion"
+    private static let base64 = try! NSRegularExpression(pattern: "^[A-Za-z0-9+/]+={0,2}$")
+
+    /// Un morceau du son des correspondants (règle 6), pour la salle.
+    var surSon: ((String, Int) -> Void)?
+    /// Un morceau du micro du client tel que la réunion le prend (règle 7), pour la salle.
+    var surMicro: ((String, Int) -> Void)?
+    /// La page du panneau a changé : le contrôleur redit à la salle si l'interprète peut s'y brancher.
+    var surEtat: (() -> Void)?
+
+    private(set) var priseReunion = false
+    private(set) var paroleReunion = false
+    private var niveauReunion = 1.0
+    private var niveauClient = 0.15
+
+    /// Une page de réunion à qui l'on prend le son : un service connu, en HTTPS.
+    var possible: Bool {
+        guard let url = reunion.url, url.scheme?.lowercased() == "https",
+              url.port == nil || url.port == 443, let hote = url.host else { return false }
+        return Self.hoteDeReunion(hote)
+    }
+
+    /// La salle demande (ou lâche) le son des correspondants ; niveau = celui de la
+    /// réunion dans le panneau pendant ce temps (1 à l'arrêt).
+    func capter(_ oui: Bool, niveau: Double) {
+        priseReunion = oui && possible
+        niveauReunion = max(0, min(1, niveau))
+        commander()
+    }
+
+    /// La salle fait parler l'interprète dans la réunion (ou l'arrête) ; niveau = la
+    /// voix du client derrière lui, pour les correspondants.
+    func parler(_ oui: Bool, niveau: Double) {
+        paroleReunion = oui && possible
+        niveauClient = max(0, min(1, niveau))
+        commander()
+    }
+
+    /// Un morceau de la voix de l'interprète, de la salle vers la réunion.
+    func voix(_ morceau: String, taux: Int) {
+        guard paroleReunion, possible, Self.morceauValide(morceau, taux) else { return }
+        reunion.evaluateJavaScript("window.__rapporteurPrise && window.__rapporteurPrise.voix('\(morceau)', \(taux));")
+    }
+
+    private func commander() {
+        reunion.evaluateJavaScript("window.__rapporteurPrise && (window.__rapporteurPrise.capter(\(priseReunion), "
+            + "\(priseReunion ? niveauReunion : 1)), window.__rapporteurPrise.parler(\(paroleReunion), \(niveauClient)));")
+    }
+
+    private static func morceauValide(_ morceau: String, _ taux: Int) -> Bool {
+        let longueur = morceau.utf8.count
+        guard longueur > 0, longueur <= 65_536, (8_000...96_000).contains(taux) else { return false }
+        return base64.firstMatch(in: morceau, range: NSRange(location: 0, length: (morceau as NSString).length)) != nil
+    }
+
+    /// Le seul pont de la page de réunion : elle ne peut que DONNER le son de ses
+    /// correspondants, ou le micro du client pendant que l'interprète y parle.
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        let origine = message.frameInfo.securityOrigin
+        guard message.frameInfo.isMainFrame, origine.protocol == "https", [0, 443].contains(origine.port),
+              Self.hoteDeReunion(origine.host), possible,
+              let corps = message.body as? [String: Any],
+              let type = corps["type"] as? String,
+              let morceau = corps["b64"] as? String,
+              let taux = (corps["taux"] as? NSNumber)?.intValue,
+              Self.morceauValide(morceau, taux) else { return }
+        switch type {
+        case "son" where priseReunion: surSon?(morceau, taux)
+        case "micro" where paroleReunion: surMicro?(morceau, taux)
+        default: break
+        }
     }
 
     @objc private func toucherFermer() { surFermer?() }
@@ -146,6 +245,17 @@ final class PanneauReunion: UIView, WKNavigationDelegate, WKUIDelegate {
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         // Le moteur de la réunion est mort (mémoire) : on la recharge.
         webView.reload()
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        surEtat?()
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        // Chaque page reçoit une prise neuve (script du début du document) : on lui
+        // redit ce que la salle a demandé.
+        if priseReunion || paroleReunion { commander() }
+        surEtat?()
     }
 
     // MARK: - Micro et caméra : aux services de réunion seulement
@@ -184,5 +294,15 @@ final class PanneauReunion: UIView, WKNavigationDelegate, WKUIDelegate {
         alerte.addAction(UIAlertAction(title: NSLocalizedString("Annuler", comment: ""), style: .cancel) { _ in completionHandler(false) })
         alerte.addAction(UIAlertAction(title: "OK", style: .default) { _ in completionHandler(true) })
         hote.present(alerte, animated: true)
+    }
+}
+
+/// WebKit retient ses récepteurs de messages : un relais faible évite que le
+/// panneau se retienne lui-même (et ne soit jamais libéré).
+private final class RelaisFaible: NSObject, WKScriptMessageHandler {
+    weak var cible: WKScriptMessageHandler?
+    init(_ cible: WKScriptMessageHandler) { self.cible = cible }
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        cible?.userContentController(controller, didReceive: message)
     }
 }

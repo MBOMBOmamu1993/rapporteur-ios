@@ -19,6 +19,9 @@
 
   var attentes = {};
   var suivant = 1;
+  /* La réunion du panneau (1.1.13) : l'application pousse son état (_etatReunion),
+     la page le lit sans attendre. */
+  var etatReunion = { possible: false };
 
   function appeler(action, params) {
     return new Promise(function (resolve, reject) {
@@ -58,6 +61,26 @@
     autresSons: function (baisser) {
       return appeler("autresSons", { baisser: Boolean(baisser) }).catch(function () {});
     },
+    /* L'interprète et la réunion ouverte dans le panneau (1.1.13), comme sur Android :
+       il l'écoute à la source (règle 6) — le son arrive par window.rapporteurSonReunion —
+       et y parle à la place du client (règle 7) — le micro du client arrive par
+       window.rapporteurMicroReunion, sa voix repart par voixReunion. */
+    sonReunionPossible: function () { return etatReunion.possible; },
+    paroleReunionPossible: function () { return etatReunion.possible; },
+    sonReunion: function (capter, niveau) {
+      appeler("sonReunion", { capter: Boolean(capter), niveau: Number(niveau) }).catch(function () {});
+    },
+    paroleReunion: function (parler, niveau) {
+      appeler("paroleReunion", { parler: Boolean(parler), niveau: Number(niveau) }).catch(function () {});
+    },
+    /* Une dizaine de morceaux par seconde : sans réponse attendue. */
+    voixReunion: function (morceau, taux) {
+      try {
+        window.webkit.messageHandlers.rapporteur.postMessage({ id: 0, action: "voixReunion",
+          params: { morceau: String(morceau || ""), taux: Number(taux) } });
+      } catch (e) { /* l'application est partie */ }
+    },
+    _etatReunion: function (etat) { etatReunion.possible = Boolean(etat && etat.possible); },
 
     capture: {
       /* Poussé par l'application dix fois par seconde, à l'échelle du vu-mètre. */
