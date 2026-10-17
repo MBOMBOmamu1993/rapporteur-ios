@@ -22,6 +22,9 @@
   /* La réunion du panneau (1.1.13) : l'application pousse son état (_etatReunion),
      la page le lit sans attendre. */
   var etatReunion = { possible: false };
+  /* Les écouteurs (1.1.13) : l'application pousse leur état (_ecouteurs) au chargement
+     et à chaque changement ; l'interprète le lit à chaque tour. */
+  var etatEcouteurs = { branches: false };
 
   function appeler(action, params) {
     return new Promise(function (resolve, reject) {
@@ -81,6 +84,12 @@
       } catch (e) { /* l'application est partie */ }
     },
     _etatReunion: function (etat) { etatReunion.possible = Boolean(etat && etat.possible); },
+    /* Écouteurs ou AirPods (1.1.13) : avec eux, l'interprète écoute la salle par le micro
+       de l'iPhone, que l'application prend elle-même (WebKit prendrait celui des AirPods) ;
+       le son arrive par window.rapporteurMicroInterprete. */
+    ecouteurs: function () { return etatEcouteurs; },
+    _ecouteurs: function (etat) { etatEcouteurs = { branches: Boolean(etat && etat.branches) }; },
+    microInterprete: function (capter) { return appeler("microInterprete", { capter: Boolean(capter) }); },
 
     capture: {
       /* Poussé par l'application dix fois par seconde, à l'échelle du vu-mètre. */

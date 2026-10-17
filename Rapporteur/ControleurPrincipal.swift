@@ -176,8 +176,10 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
     // MARK: - Hors connexion
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        // Une page neuve de la salle : l'état de la réunion du panneau lui est redit.
+        // Une page neuve de la salle : l'état de la réunion du panneau lui est redit,
+        // et celui des écouteurs (1.1.13).
         pousserEtatReunion()
+        pont.pousserEcouteurs()
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {

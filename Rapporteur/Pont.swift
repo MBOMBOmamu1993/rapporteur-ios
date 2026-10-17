@@ -20,6 +20,9 @@ final class Pont: NSObject, WKScriptMessageHandler {
 
     private weak var vue: WKWebView?
     private let enregistreur = Enregistreur()
+    /// Le micro de l'iPhone pour l'interprète, avec des écouteurs ou des AirPods (1.1.13).
+    private let microInterprete = MicroInterprete()
+    private var observateurRoute: NSObjectProtocol?
     private var minuterieNiveau: Timer?
     /// Les gros transferts (le fichier de la séance) passent un par un.
     private let fileEnvois = DispatchQueue(label: "com.lerapporteur.mobile.pont")
@@ -37,11 +40,22 @@ final class Pont: NSObject, WKScriptMessageHandler {
                                       injectionTime: .atDocumentStart, forMainFrameOnly: true)
             vue.configuration.userContentController.addUserScript(script)
         }
+        microInterprete.surMorceau = { [weak self] morceau, taux in
+            self?.direMicroInterprete("recevoir", "'\(morceau)',\(taux)")
+        }
+        microInterprete.surArret = { [weak self] in self?.direMicroInterprete("arrete") }
+        // Écouteurs branchés ou retirés : la page le sait aussitôt.
+        observateurRoute = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification,
+                                                                  object: nil, queue: .main) { [weak self] _ in
+            self?.pousserEcouteurs()
+        }
     }
 
     func detacher() {
         vue?.configuration.userContentController.removeScriptMessageHandler(forName: Pont.nom)
         minuterieNiveau?.invalidate()
+        microInterprete.arreter()
+        if let observateur = observateurRoute { NotificationCenter.default.removeObserver(observateur) }
     }
 
     var captureEnCours: Bool { enregistreur.enCours }
@@ -146,6 +160,25 @@ final class Pont: NSObject, WKScriptMessageHandler {
             if let morceau = params["morceau"] as? String, let taux = (params["taux"] as? NSNumber)?.intValue {
                 surVoixReunion?(morceau, taux)
             }
+        case "microInterprete":
+            // Écouteurs ou AirPods : l'application écoute par le micro de l'iPhone pour
+            // l'interprète (la page n'ouvre aucun micro). Jamais pendant un enregistrement.
+            guard params["capter"] as? Bool ?? false else {
+                microInterprete.arreter()
+                repondre(id, ["ok": true]); return
+            }
+            guard !enregistreur.enCours else { repondre(id, ["erreur": "enregistrement en cours"]); return }
+            demanderMicro { [weak self] accorde in
+                guard let self = self else { return }
+                guard accorde else { self.repondre(id, ["erreur": "micro refusé"]); return }
+                do {
+                    try self.microInterprete.demarrer()
+                    self.repondre(id, ["ok": true])
+                } catch {
+                    self.microInterprete.arreter()
+                    self.repondre(id, ["erreur": self.decrire(error)])
+                }
+            }
         case "autresSons":
             // L'interprète vocal parle à l'oreille : les autres applications
             // (YouTube, Teams…) baissent leur son le temps qu'il parle.
@@ -172,6 +205,8 @@ final class Pont: NSObject, WKScriptMessageHandler {
     /// site n'ouvre pas l'interprète pendant un enregistrement sur iPhone).
     private func autresSons(baisser: Bool) -> [String: Any] {
         if enregistreur.enCours { return ["ok": false] }
+        // Le micro de l'iPhone pris pour l'interprète (écouteurs) : sa session reste telle quelle.
+        if microInterprete.enCours { return ["ok": true] }
         let session = AVAudioSession.sharedInstance()
         do {
             if baisser {
@@ -206,6 +241,38 @@ final class Pont: NSObject, WKScriptMessageHandler {
     func etatReunion(possible: Bool) {
         guard pageDeConfiance else { return }
         vue?.evaluateJavaScript("window.rapporteurIOS && window.rapporteurIOS._etatReunion({possible: \(possible)});")
+    }
+
+    /// Des écouteurs (filaires, USB, Bluetooth, AirPods) sur la sortie ? Poussé dans la page
+    /// au chargement et à chaque changement : l'interprète s'y adapte sans s'arrêter.
+    func pousserEcouteurs() {
+        guard pageDeConfiance else { return }
+        let types: Set<AVAudioSession.Port> = [.headphones, .bluetoothA2DP, .bluetoothHFP, .bluetoothLE, .usbAudio]
+        let branches = AVAudioSession.sharedInstance().currentRoute.outputs.contains { types.contains($0.portType) }
+        vue?.evaluateJavaScript("window.rapporteurIOS && window.rapporteurIOS._ecouteurs && window.rapporteurIOS._ecouteurs({branches: \(branches)});")
+    }
+
+    /// Le micro de l'iPhone remis à l'interprète : `recevoir(morceau, taux)` ou `arrete()`.
+    private func direMicroInterprete(_ fonction: String, _ argument: String = "") {
+        guard pageDeConfiance, ["recevoir", "arrete"].contains(fonction) else { return }
+        vue?.evaluateJavaScript("window.rapporteurMicroInterprete && window.rapporteurMicroInterprete.\(fonction)(\(argument));")
+    }
+
+    private func demanderMicro(_ suite: @escaping (Bool) -> Void) {
+        let fin: (Bool) -> Void = { accorde in DispatchQueue.main.async { suite(accorde) } }
+        if #available(iOS 17.0, *) {
+            switch AVAudioApplication.shared.recordPermission {
+            case .granted: fin(true)
+            case .denied: fin(false)
+            default: AVAudioApplication.requestRecordPermission { fin($0) }
+            }
+        } else {
+            switch AVAudioSession.sharedInstance().recordPermission {
+            case .granted: fin(true)
+            case .denied: fin(false)
+            default: AVAudioSession.sharedInstance().requestRecordPermission { fin($0) }
+            }
+        }
     }
 
     /// Le son des correspondants (rapporteurSonReunion) ou le micro du client
