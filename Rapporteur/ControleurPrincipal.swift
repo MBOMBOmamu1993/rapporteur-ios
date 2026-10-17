@@ -23,6 +23,8 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
     private var toileEnHaut: NSLayoutConstraint!
     private var toileSousPanneau: NSLayoutConstraint!
     private var panneauOuvert = false
+    /// L'interprète vocal tourne dans la page (1.1.14).
+    private var interpreteActif = false
 
     override func loadView() {
         let configuration = WKWebViewConfiguration()
@@ -58,6 +60,7 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
             self?.pont.direReunion("rapporteurMicroReunion", "recevoir", "'\(morceau)',\(taux)")
         }
         panneau.surEtat = { [weak self] in self?.pousserEtatReunion() }
+        pont.surInterprete = { [weak self] actif in self?.tenirEveille(interprete: actif) }
 
         // La salle occupe tout l'écran. Une réunion ouverte ici prend le haut,
         // comme sur Android, et la salle reste dessous, « Démarrer » à portée.
@@ -104,7 +107,7 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
         toileSousPanneau.isActive = true
         // Écran éteint, iOS coupe le micro d'une page web : la réunion
         // n'entendrait plus le client. L'écran reste donc allumé.
-        UIApplication.shared.isIdleTimerDisabled = true
+        garderEcranAllume()
         setNeedsStatusBarAppearanceUpdate()
         UIView.animate(withDuration: 0.25) { self.view.layoutIfNeeded() }
     }
@@ -120,9 +123,26 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
         toileSousPanneau.isActive = false
         toileEnHaut.isActive = true
         panneau.isHidden = true
-        UIApplication.shared.isIdleTimerDisabled = false
+        garderEcranAllume()
         setNeedsStatusBarAppearanceUpdate()
         UIView.animate(withDuration: 0.25) { self.view.layoutIfNeeded() }
+    }
+
+    /// L'écran reste allumé tant qu'une page en a besoin : la réunion du panneau ou l'interprète.
+    private func garderEcranAllume() {
+        UIApplication.shared.isIdleTimerDisabled = panneauOuvert || interpreteActif
+    }
+
+    /// L'interprète vocal démarre ou s'arrête (1.1.14) — essai de Felly du 17/10/2026 : il se
+    /// taisait dès que l'écran se verrouillait. L'écran reste donc allumé tant qu'il tourne ; et
+    /// si le client le verrouille lui-même, la page n'est pas suspendue tant que l'application
+    /// tourne (son micro, avec des écouteurs, ou l'enregistrement) : l'interprète peut continuer.
+    private func tenirEveille(interprete actif: Bool) {
+        interpreteActif = actif
+        garderEcranAllume()
+        if #available(iOS 15.4, *) {
+            toile.configuration.preferences.inactiveSchedulingPolicy = actif ? WKInactiveSchedulingPolicy.none : .suspend
+        }
     }
 
     /// La salle doit savoir, sans attendre, si l'interprète peut se brancher sur la
@@ -175,6 +195,11 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
 
     // MARK: - Hors connexion
 
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        // Une autre page : l'interprète de la précédente n'est plus là pour se dire arrêté.
+        if interpreteActif { tenirEveille(interprete: false) }
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         // Une page neuve de la salle : l'état de la réunion du panneau lui est redit,
         // et celui des écouteurs (1.1.13).
@@ -202,6 +227,7 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        if interpreteActif { tenirEveille(interprete: false) }
         // Le moteur est mort (mémoire, mise à jour) : plutôt qu'un écran
         // blanc « qui ne s'ouvre plus », on recharge.
         if pont.captureEnCours { webView.reload() } else { chargerAccueil() }

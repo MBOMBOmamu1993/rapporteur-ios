@@ -72,6 +72,8 @@ final class Pont: NSObject, WKScriptMessageHandler {
     var surSonReunion: ((Bool, Double) -> Void)?
     var surParoleReunion: ((Bool, Double) -> Void)?
     var surVoixReunion: ((String, Int) -> Void)?
+    /// L'interprète vocal démarre ou s'arrête (1.1.14) : le contrôleur garde l'écran allumé.
+    var surInterprete: ((Bool) -> Void)?
 
     // MARK: - Réception
 
@@ -203,6 +205,12 @@ final class Pont: NSObject, WKScriptMessageHandler {
             // L'interprète vocal parle à l'oreille : les autres applications
             // (YouTube, Teams…) baissent leur son le temps qu'il parle.
             repondre(id, autresSons(baisser: params["baisser"] as? Bool ?? false))
+        case "interprete":
+            /* Essai de Felly (17/10/2026) : l'interprète se taisait dès que l'écran se
+               verrouillait — iOS coupe le micro d'une page, puis la suspend. Tant qu'il tourne,
+               l'écran reste allumé, comme pour la réunion du panneau. */
+            surInterprete?(params["actif"] as? Bool ?? false)
+            repondre(id, ["ok": true])
         case "enregistrementDemarre", "enregistrementTermine":
             // Le pendant du service Android : ici, c'est la session audio
             // active qui tient l'application éveillée — rien à faire de plus.

@@ -91,6 +91,11 @@
     ecouteurs: function () { return etatEcouteurs; },
     _ecouteurs: function (etat) { etatEcouteurs = { branches: Boolean(etat && etat.branches) }; },
     microInterprete: function (capter) { return appeler("microInterprete", { capter: Boolean(capter) }); },
+    /* L'interprète démarre ou s'arrête (1.1.14) : tant qu'il tourne, l'application garde l'écran
+       allumé — iOS coupe le micro d'une page dès que l'écran s'éteint — et ne suspend pas la page. */
+    interprete: function (actif) {
+      return appeler("interprete", { actif: Boolean(actif) }).catch(function () {});
+    },
 
     capture: {
       /* Poussé par l'application dix fois par seconde, à l'échelle du vu-mètre. */
