@@ -102,9 +102,13 @@ final class PanneauReunion: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         // récepteurs, le panneau ne doit pas se retenir lui-même.
         let controleur = reunion.configuration.userContentController
         controleur.add(RelaisFaible(self), name: Self.pontPrise)
-        if let chemin = Bundle.main.url(forResource: "prise-reunion", withExtension: "js"),
-           let source = try? String(contentsOf: chemin, encoding: .utf8) {
-            controleur.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        // D'abord « ordinateur.js » : sans lui, Teams voit un iPhone (plateforme et
+        // écran tactile) et ne sert que l'App Store ; puis la prise du son.
+        for nom in ["ordinateur", "prise-reunion"] {
+            if let chemin = Bundle.main.url(forResource: nom, withExtension: "js"),
+               let source = try? String(contentsOf: chemin, encoding: .utf8) {
+                controleur.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            }
         }
     }
 
