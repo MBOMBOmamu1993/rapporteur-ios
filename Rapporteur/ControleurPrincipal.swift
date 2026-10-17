@@ -140,8 +140,8 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
     private func tenirEveille(interprete actif: Bool) {
         interpreteActif = actif
         garderEcranAllume()
-        if #available(iOS 15.4, *) {
-            toile.configuration.preferences.inactiveSchedulingPolicy = actif ? WKInactiveSchedulingPolicy.none : .suspend
+        if #available(iOS 17.0, *) {
+            toile.configuration.preferences.inactiveSchedulingPolicy = actif ? WKPreferences.InactiveSchedulingPolicy.none : .suspend
         }
     }
 
