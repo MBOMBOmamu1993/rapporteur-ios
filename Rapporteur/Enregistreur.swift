@@ -52,6 +52,16 @@ final class Enregistreur {
     private let verrou = NSLock()
     private var enPause = false
     private(set) var enCours = false
+    /// L'interprète vocal pendant l'enregistrement (1.1.14, demande de Felly du 17/10/2026) :
+    /// une COPIE de chaque tampon mono du micro, remise sur le fil audio — pause comprise, la
+    /// pause ne vaut que pour le compte rendu. Aucun second micro ne s'ouvre ; le fichier, lui,
+    /// reçoit exactement ce qu'il recevait.
+    private var copie: ((AVAudioPCMBuffer) -> Void)?
+    private let verrouCopie = NSLock()
+    var surCopie: ((AVAudioPCMBuffer) -> Void)? {
+        get { verrouCopie.lock(); defer { verrouCopie.unlock() }; return copie }
+        set { verrouCopie.lock(); copie = newValue; verrouCopie.unlock() }
+    }
     private let file = DispatchQueue(label: "com.lerapporteur.mobile.capture")
     private var observateurs: [NSObjectProtocol] = []
 
@@ -198,8 +208,10 @@ final class Enregistreur {
 
     private func traiter(_ tampon: AVAudioPCMBuffer, formatMono: AVAudioFormat) {
         dernierTampon = Date()
+        let enMono = versMono(tampon, format: formatMono)
+        if let enMono = enMono, let copie = surCopie { copie(enMono) }
         guard !enPause, let fichier = fichier else { niveau = 0; return }
-        guard let mono = versMono(tampon, format: formatMono) else { return }
+        guard let mono = enMono else { return }
 
         // Le niveau : racine du carré moyen, puis la compression de la page.
         if let donnees = mono.floatChannelData?[0] {
@@ -248,8 +260,9 @@ final class Enregistreur {
     func reprendre() { file.async { self.enPause = false } }
 
     /// Clôt le fichier et le rend. La session audio est relâchée : le
-    /// téléphone retrouve son comportement normal.
-    func arreter() -> URL? {
+    /// téléphone retrouve son comportement normal — sauf si l'interprète tourne
+    /// encore (`garderSession`, 1.1.14) : sa voix ne doit pas se couper.
+    func arreter(garderSession: Bool = false) -> URL? {
         var url: URL?
         file.sync {
             guard enCours else { return }
@@ -263,7 +276,10 @@ final class Enregistreur {
             niveau = 0
             observateurs.forEach { NotificationCenter.default.removeObserver($0) }
             observateurs.removeAll()
-            try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+            surCopie = nil
+            if !garderSession {
+                try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+            }
         }
         return url
     }

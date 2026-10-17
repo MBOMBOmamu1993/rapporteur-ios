@@ -12,6 +12,10 @@ import Foundation
 /// remet le son à la page par morceaux de 16 bits à 48 kHz, une dizaine par seconde, comme
 /// la prise de la réunion du panneau. La voix de l'interprète, que joue la page, va aux
 /// écouteurs en haute qualité (A2DP). Rien n'est gardé : les morceaux passent, c'est tout.
+///
+/// Pendant un enregistrement (1.1.14) : AUCUN moteur à soi. L'enregistreur remet une copie de
+/// son micro (`recevoirCopie`), convertie de la même façon — un seul micro ouvert, celui du
+/// compte rendu, qui ne change rien à ce qu'il enregistre.
 final class MicroInterprete {
 
     /// Un morceau (base64, taux), sur le fil principal.
@@ -21,6 +25,10 @@ final class MicroInterprete {
     var surArret: (() -> Void)?
 
     private(set) var enCours = false
+    /// Branché sur la copie du micro de l'enregistrement (1.1.14).
+    private(set) var parCopie = false
+    private var convertisseurCopie: AVAudioConverter?
+    private var tauxCopie: Double = 0
 
     private let moteur = AVAudioEngine()
     private let formatSortie = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 48_000,
@@ -55,12 +63,40 @@ final class MicroInterprete {
     func arreter() {
         guard enCours else { return }
         enCours = false
+        if parCopie {
+            // La copie : rien à éteindre, l'enregistreur cesse simplement de la remettre.
+            parCopie = false
+            verrou.lock(); tampon.removeAll(); convertisseurCopie = nil; tauxCopie = 0; verrou.unlock()
+            return
+        }
         observateurs.forEach { NotificationCenter.default.removeObserver($0) }
         observateurs = []
         moteur.inputNode.removeTap(onBus: 0)
         moteur.stop()
         formatTap = nil
         verrou.lock(); tampon.removeAll(); verrou.unlock()
+    }
+
+    /// Pendant un enregistrement : son moteur à lui s'arrête (un seul micro), la copie le remplace.
+    func passerEnCopie() {
+        if enCours && !parCopie { arreter() }
+        verrou.lock(); tampon.removeAll(); convertisseurCopie = nil; tauxCopie = 0; verrou.unlock()
+        parCopie = true
+        enCours = true
+    }
+
+    /// Un tampon mono flottant de l'enregistrement, reçu sur le fil audio.
+    func recevoirCopie(_ mono: AVAudioPCMBuffer) {
+        guard enCours, parCopie else { return }
+        verrou.lock()
+        if convertisseurCopie == nil || tauxCopie != mono.format.sampleRate {
+            convertisseurCopie = AVAudioConverter(from: mono.format, to: formatSortie)
+            tauxCopie = mono.format.sampleRate
+        }
+        let convertisseur = convertisseurCopie
+        verrou.unlock()
+        guard let convertisseur = convertisseur else { return }
+        envoyer(mono, par: convertisseur)
     }
 
     /// Le tap au format COURANT du micro (il change avec la route : un appel, d'autres écouteurs).
@@ -88,7 +124,12 @@ final class MicroInterprete {
         // Le premier canal seul : l'interprète écoute en mono.
         entree.frameLength = source.frameLength
         memcpy(cible, canal, Int(source.frameLength) * MemoryLayout<Float>.size)
-        let capacite = AVAudioFrameCount(Double(source.frameLength) * formatSortie.sampleRate / mono.sampleRate) + 32
+        envoyer(entree, par: convertisseur)
+    }
+
+    /// Du mono flottant aux morceaux de 16 bits à 48 kHz, remis à la page sur le fil principal.
+    private func envoyer(_ entree: AVAudioPCMBuffer, par convertisseur: AVAudioConverter) {
+        let capacite = AVAudioFrameCount(Double(entree.frameLength) * formatSortie.sampleRate / entree.format.sampleRate) + 32
         guard let sortie = AVAudioPCMBuffer(pcmFormat: formatSortie, frameCapacity: capacite) else { return }
         var servi = false
         var erreur: NSError?

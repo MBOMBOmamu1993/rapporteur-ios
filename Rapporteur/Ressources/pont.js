@@ -86,7 +86,8 @@
     _etatReunion: function (etat) { etatReunion.possible = Boolean(etat && etat.possible); },
     /* Écouteurs ou AirPods (1.1.13) : avec eux, l'interprète écoute la salle par le micro
        de l'iPhone, que l'application prend elle-même (WebKit prendrait celui des AirPods) ;
-       le son arrive par window.rapporteurMicroInterprete. */
+       le son arrive par window.rapporteurMicroInterprete. Pendant un enregistrement (1.1.14),
+       c'est une COPIE du micro du compte rendu : aucun second micro ne s'ouvre. */
     ecouteurs: function () { return etatEcouteurs; },
     _ecouteurs: function (etat) { etatEcouteurs = { branches: Boolean(etat && etat.branches) }; },
     microInterprete: function (capter) { return appeler("microInterprete", { capter: Boolean(capter) }); },

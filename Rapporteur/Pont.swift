@@ -22,6 +22,8 @@ final class Pont: NSObject, WKScriptMessageHandler {
     private let enregistreur = Enregistreur()
     /// Le micro de l'iPhone pour l'interprète, avec des écouteurs ou des AirPods (1.1.13).
     private let microInterprete = MicroInterprete()
+    /// Le temps que l'enregistreur démarre : une demande de l'interprète y attend sa copie (1.1.14).
+    private var enregistrementEnDemarrage = false
     private var observateurRoute: NSObjectProtocol?
     private var minuterieNiveau: Timer?
     /// Les gros transferts (le fichier de la séance) passent un par un.
@@ -54,6 +56,7 @@ final class Pont: NSObject, WKScriptMessageHandler {
     func detacher() {
         vue?.configuration.userContentController.removeScriptMessageHandler(forName: Pont.nom)
         minuterieNiveau?.invalidate()
+        enregistreur.surCopie = nil
         microInterprete.arreter()
         if let observateur = observateurRoute { NotificationCenter.default.removeObserver(observateur) }
     }
@@ -87,13 +90,20 @@ final class Pont: NSObject, WKScriptMessageHandler {
 
         switch action {
         case "demarrer":
+            /* Un seul micro pendant l'enregistrement (1.1.14) : l'interprète qui écoutait par
+               celui de l'iPhone (écouteurs) passe sur la copie de celui du compte rendu, sans
+               que la page ait à le redemander. */
+            enregistrementEnDemarrage = true
+            if microInterprete.enCours && !microInterprete.parCopie { brancherCopie() }
             enregistreur.demarrer { resultat in
                 DispatchQueue.main.async {
+                    self.enregistrementEnDemarrage = false
                     switch resultat {
                     case .success:
                         self.lancerLeNiveau()
                         self.repondre(id, ["ok": true])
                     case .failure(let erreur):
+                        self.lacherLaCopie()
                         self.repondre(id, ["erreur": self.decrire(erreur)])
                     }
                 }
@@ -115,8 +125,12 @@ final class Pont: NSObject, WKScriptMessageHandler {
             }
         case "arreter":
             minuterieNiveau?.invalidate()
+            // L'interprète écoutait la copie : la session reste ouverte, sa voix ne se coupe pas.
+            let garder = microInterprete.parCopie
             fileEnvois.async {
-                let url = self.enregistreur.arreter()
+                let url = self.enregistreur.arreter(garderSession: garder)
+                // Il repasse à son micro (écouteurs) ou à celui de la page : elle le redemande.
+                DispatchQueue.main.async { self.lacherLaCopie() }
                 let donnees = url.flatMap { try? Data(contentsOf: $0) }
                 DispatchQueue.main.async {
                     guard let donnees = donnees, !donnees.isEmpty else {
@@ -162,12 +176,18 @@ final class Pont: NSObject, WKScriptMessageHandler {
             }
         case "microInterprete":
             // Écouteurs ou AirPods : l'application écoute par le micro de l'iPhone pour
-            // l'interprète (la page n'ouvre aucun micro). Jamais pendant un enregistrement.
+            // l'interprète (la page n'ouvre aucun micro).
             guard params["capter"] as? Bool ?? false else {
+                if microInterprete.parCopie { enregistreur.surCopie = nil }
                 microInterprete.arreter()
                 repondre(id, ["ok": true]); return
             }
-            guard !enregistreur.enCours else { repondre(id, ["erreur": "enregistrement en cours"]); return }
+            /* Pendant l'enregistrement — ou le temps qu'il démarre — (1.1.14) : la copie du micro
+               du compte rendu, jamais un second micro. */
+            if enregistreur.enCours || enregistrementEnDemarrage {
+                brancherCopie()
+                repondre(id, ["ok": true, "copie": true]); return
+            }
             demanderMicro { [weak self] accorde in
                 guard let self = self else { return }
                 guard accorde else { self.repondre(id, ["erreur": "micro refusé"]); return }
@@ -201,8 +221,8 @@ final class Pont: NSObject, WKScriptMessageHandler {
     /// `.defaultToSpeaker` envoie l'interprète au haut-parleur (pas à l'écouteur
     /// d'appel, où l'enverrait le micro ouvert). À l'arrêt, la session se retire
     /// en le disant aux autres (`.notifyOthersOnDeactivation`) : leur son revient.
-    /// Pendant un enregistrement natif, rien : la séance garde ses réglages (et le
-    /// site n'ouvre pas l'interprète pendant un enregistrement sur iPhone).
+    /// Pendant un enregistrement natif, rien : la séance garde ses réglages (l'interprète,
+    /// 1.1.14, y écoute une copie de son micro et ne parle que dans des écouteurs).
     private func autresSons(baisser: Bool) -> [String: Any] {
         if enregistreur.enCours { return ["ok": false] }
         // Le micro de l'iPhone pris pour l'interprète (écouteurs) : sa session reste telle quelle.
@@ -250,6 +270,20 @@ final class Pont: NSObject, WKScriptMessageHandler {
         let types: Set<AVAudioSession.Port> = [.headphones, .bluetoothA2DP, .bluetoothHFP, .bluetoothLE, .usbAudio]
         let branches = AVAudioSession.sharedInstance().currentRoute.outputs.contains { types.contains($0.portType) }
         vue?.evaluateJavaScript("window.rapporteurIOS && window.rapporteurIOS._ecouteurs && window.rapporteurIOS._ecouteurs({branches: \(branches)});")
+    }
+
+    /// L'interprète sur la copie du micro de l'enregistrement (1.1.14).
+    private func brancherCopie() {
+        microInterprete.passerEnCopie()
+        enregistreur.surCopie = { [weak self] tampon in self?.microInterprete.recevoirCopie(tampon) }
+    }
+
+    /// La copie lâchée (fin ou échec de l'enregistrement) : la page redemande sa source.
+    private func lacherLaCopie() {
+        guard microInterprete.parCopie else { return }
+        enregistreur.surCopie = nil
+        microInterprete.arreter()
+        direMicroInterprete("arrete")
     }
 
     /// Le micro de l'iPhone remis à l'interprète : `recevoir(morceau, taux)` ou `arrete()`.
