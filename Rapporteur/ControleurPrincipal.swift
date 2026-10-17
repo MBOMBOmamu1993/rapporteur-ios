@@ -46,6 +46,18 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
         pont.surOuvrirReunion = { [weak self] lien in self?.ouvrirReunion(lien) }
         pont.surFermerReunion = { [weak self] in self?.fermerReunion() }
         panneau.surFermer = { [weak self] in self?.fermerReunion() }
+        // L'interprète et la réunion du panneau (1.1.13), comme sur Android : la salle
+        // demande, le panneau exécute et rend le son ou le micro à la salle.
+        pont.surSonReunion = { [weak self] capter, niveau in self?.panneau.capter(capter, niveau: niveau) }
+        pont.surParoleReunion = { [weak self] parler, niveau in self?.panneau.parler(parler, niveau: niveau) }
+        pont.surVoixReunion = { [weak self] morceau, taux in self?.panneau.voix(morceau, taux: taux) }
+        panneau.surSon = { [weak self] morceau, taux in
+            self?.pont.direReunion("rapporteurSonReunion", "recevoir", "'\(morceau)',\(taux)")
+        }
+        panneau.surMicro = { [weak self] morceau, taux in
+            self?.pont.direReunion("rapporteurMicroReunion", "recevoir", "'\(morceau)',\(taux)")
+        }
+        panneau.surEtat = { [weak self] in self?.pousserEtatReunion() }
 
         // La salle occupe tout l'écran. Une réunion ouverte ici prend le haut,
         // comme sur Android, et la salle reste dessous, « Démarrer » à portée.
@@ -100,13 +112,23 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
     private func fermerReunion() {
         guard panneauOuvert else { return }
         panneauOuvert = false
+        // Plus de réunion : l'interprète qui l'écoutait ou y parlait est prévenu.
+        if panneau.priseReunion { pont.direReunion("rapporteurSonReunion", "arrete") }
+        if panneau.paroleReunion { pont.direReunion("rapporteurMicroReunion", "arrete") }
         panneau.vider()
+        pousserEtatReunion()
         toileSousPanneau.isActive = false
         toileEnHaut.isActive = true
         panneau.isHidden = true
         UIApplication.shared.isIdleTimerDisabled = false
         setNeedsStatusBarAppearanceUpdate()
         UIView.animate(withDuration: 0.25) { self.view.layoutIfNeeded() }
+    }
+
+    /// La salle doit savoir, sans attendre, si l'interprète peut se brancher sur la
+    /// réunion du panneau (ouverte, sur un service connu).
+    private func pousserEtatReunion() {
+        pont.etatReunion(possible: panneauOuvert && panneau.possible)
     }
 
     private func langueDeLaSalle(_ url: URL) -> String {
@@ -152,6 +174,11 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
     }
 
     // MARK: - Hors connexion
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        // Une page neuve de la salle : l'état de la réunion du panneau lui est redit.
+        pousserEtatReunion()
+    }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         montrerHorsLigneSiBesoin(error)
