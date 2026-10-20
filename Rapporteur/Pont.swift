@@ -28,6 +28,10 @@ final class Pont: NSObject, WKScriptMessageHandler {
     private var minuterieNiveau: Timer?
     /// Les gros transferts (le fichier de la séance) passent un par un.
     private let fileEnvois = DispatchQueue(label: "com.lerapporteur.mobile.pont")
+    /// Les réunions gardées jusqu'à ce que le serveur les ait reçues (1.1.16).
+    private let gardees = ReunionsGardees()
+    /// Le compte qui enregistre, dit par la page au démarrage : noté avec le fichier gardé.
+    private var proprietaireSeance: String?
 
     var version: String {
         (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "0"
@@ -46,6 +50,8 @@ final class Pont: NSObject, WKScriptMessageHandler {
             self?.direMicroInterprete("recevoir", "'\(morceau)',\(taux)")
         }
         microInterprete.surArret = { [weak self] in self?.direMicroInterprete("arrete") }
+        // Les réunions gardées de plus de dix jours, et l'excédent au-delà de 2 Go (1.1.16).
+        fileEnvois.async { [gardees] in gardees.menage() }
         // Écouteurs branchés ou retirés : la page le sait aussitôt.
         observateurRoute = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification,
                                                                   object: nil, queue: .main) { [weak self] _ in
@@ -96,6 +102,7 @@ final class Pont: NSObject, WKScriptMessageHandler {
                celui de l'iPhone (écouteurs) passe sur la copie de celui du compte rendu, sans
                que la page ait à le redemander. */
             enregistrementEnDemarrage = true
+            proprietaireSeance = (params["proprietaire"] as? String).flatMap { ReunionsGardees.valide($0) ? $0 : nil }
             if microInterprete.enCours && !microInterprete.parCopie { brancherCopie() }
             enregistreur.demarrer { resultat in
                 DispatchQueue.main.async {
@@ -129,22 +136,62 @@ final class Pont: NSObject, WKScriptMessageHandler {
             minuterieNiveau?.invalidate()
             // L'interprète écoutait la copie : la session reste ouverte, sa voix ne se coupe pas.
             let garder = microInterprete.parCopie
+            let proprietaire = proprietaireSeance
             fileEnvois.async {
                 let url = self.enregistreur.arreter(garderSession: garder)
                 // Il repasse à son micro (écouteurs) ou à celui de la page : elle le redemande.
                 DispatchQueue.main.async { self.lacherLaCopie() }
                 let donnees = url.flatMap { try? Data(contentsOf: $0) }
+                /* 1.1.16 : le fichier n'est plus effacé quand la page l'a reçu. Il est rangé à
+                   l'abri jusqu'à ce que la page dise que le serveur l'a reçu (oublierReunion) :
+                   si la copie de la page ne se lisait plus, elle le redemande (reunionGardee). */
+                let garde: String? = {
+                    guard let url = url, let donnees = donnees, !donnees.isEmpty else { return nil }
+                    let duree = Pont.dureeSec(url)
+                    return try? self.gardees.garder(fichier: url, debut: Pont.debutDe(url, dureeSec: duree),
+                                                    dureeSec: duree, proprietaire: proprietaire)
+                }()
                 DispatchQueue.main.async {
                     guard let donnees = donnees, !donnees.isEmpty else {
                         self.repondre(id, ["erreur": "fichier introuvable"]); return
                     }
                     self.envoyerParMorceaux(id, donnees) {
-                        self.repondre(id, ["ok": true, "octetsTotal": donnees.count])
-                        // La page tient désormais le fichier (file d'attente) :
-                        // l'exemplaire temporaire n'a plus de raison d'être.
-                        if let url = url { try? FileManager.default.removeItem(at: url) }
+                        var reponse: [String: Any] = ["ok": true, "octetsTotal": donnees.count]
+                        if let garde = garde { reponse["garde"] = garde }
+                        self.repondre(id, reponse)
+                        // Pas rangé (disque plein…) : l'exemplaire temporaire part, comme avant.
+                        if garde == nil, let url = url { try? FileManager.default.removeItem(at: url) }
                     }
                 }
+            }
+        case "reunionsGardees":
+            fileEnvois.async {
+                let liste = self.gardees.liste()
+                DispatchQueue.main.async { self.repondre(id, ["ok": true, "reunions": liste]) }
+            }
+        case "reunionGardee":
+            let ident = params["id"] as? String ?? ""
+            fileEnvois.async {
+                let donnees = self.gardees.donnees(id: ident)
+                DispatchQueue.main.async {
+                    guard let donnees = donnees, !donnees.isEmpty else {
+                        self.repondre(id, ["erreur": "introuvable"]); return
+                    }
+                    self.envoyerParMorceaux(id, donnees) { self.repondre(id, ["ok": true, "octetsTotal": donnees.count]) }
+                }
+            }
+        case "noterReunion":
+            let ident = params["id"] as? String ?? ""
+            let infos = params["infos"] as? [String: Any] ?? [:]
+            fileEnvois.async {
+                let note = (try? self.gardees.noter(id: ident, page: infos)) != nil
+                DispatchQueue.main.async { self.repondre(id, note ? ["ok": true] : ["erreur": "introuvable"]) }
+            }
+        case "oublierReunion":
+            let ident = params["id"] as? String ?? ""
+            fileEnvois.async {
+                self.gardees.oublier(id: ident)
+                DispatchQueue.main.async { self.repondre(id, ["ok": true]) }
             }
         case "notifier":
             Notifications.partagees.poser(titre: params["titre"] as? String ?? "Rapporteur",
@@ -369,6 +416,22 @@ final class Pont: NSObject, WKScriptMessageHandler {
                 "window.rapporteurIOS && (window.rapporteurIOS.capture.niveau = \(n), " +
                 "window.rapporteurIOS.capture.interrompueSec = \(i));")
         }
+    }
+
+    /// La durée réelle du fichier de la séance, en secondes (0 s'il ne se lit pas).
+    static func dureeSec(_ url: URL) -> Int {
+        guard let fichier = try? AVAudioFile(forReading: url), fichier.processingFormat.sampleRate > 0 else { return 0 }
+        return Int((Double(fichier.length) / fichier.processingFormat.sampleRate).rounded())
+    }
+
+    /// Le début de la séance : l'heure inscrite au démarrage dans le nom du fichier
+    /// (`reunion-<secondes>.m4a`), sinon maintenant moins la durée.
+    static func debutDe(_ url: URL, dureeSec: Int) -> Date {
+        let nom = url.deletingPathExtension().lastPathComponent
+        if nom.hasPrefix("reunion-"), let secondes = TimeInterval(nom.dropFirst("reunion-".count)) {
+            return Date(timeIntervalSince1970: secondes)
+        }
+        return Date().addingTimeInterval(-TimeInterval(dureeSec))
     }
 
     private func decrire(_ erreur: Error) -> String {

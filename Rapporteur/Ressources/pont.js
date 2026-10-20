@@ -104,7 +104,12 @@
          le micro à l'application (appel, Siri, autre application) — 0 tant que
          la capture tourne. La salle le dit au client sans attendre. */
       interrompueSec: 0,
-      demarrer: function () { return appeler("demarrer"); },
+      /* Le compte qui enregistre (1.1.16) : noté par l'application avec le fichier gardé. */
+      demarrer: function () {
+        var proprietaire = null;
+        try { proprietaire = window.__espace || localStorage.getItem("rapporteur:proprietaire"); } catch (e) { /* rien */ }
+        return appeler("demarrer", proprietaire ? { proprietaire: String(proprietaire) } : {});
+      },
       pause: function () { return appeler("pause"); },
       reprendre: function () { return appeler("reprendre"); },
       /* Les trois dernières minutes en .m4a, ou null s'il n'y a rien à juger. */
@@ -113,12 +118,34 @@
           return r && r.octets && r.octets.length ? new Blob(r.octets, { type: "audio/mp4" }) : null;
         });
       },
-      /* Le fichier de la séance, en UNE partie : la liste que la page attend. */
+      /* Le fichier de la séance, en UNE partie : la liste que la page attend. Depuis la 1.1.16,
+         l'application en garde l'original jusqu'à ce que le serveur l'ait reçu : son identifiant
+         et son poids restent dans `derniereGarde`, que la file d'envoi pose sur la réunion. */
       arreter: function () {
         return appeler("arreter").then(function (r) {
+          pont.capture.derniereGarde = r && r.garde ? { id: String(r.garde), octets: Number(r.octetsTotal) || 0 } : null;
           return r && r.octets && r.octets.length ? [new Blob(r.octets, { type: "audio/mp4" })] : [];
         });
-      }
+      },
+      derniereGarde: null
+    },
+
+    /* Les réunions gardées par l'application (1.1.16) : la liste [{ id, octets, cree, infos }],
+       le fichier d'une réunion, ce que la page en sait (posé à côté), et l'oubli une fois le
+       compte rendu demandé au serveur — ou la réunion supprimée par le client. */
+    gardees: function () {
+      return appeler("reunionsGardees").then(function (r) { return (r && r.reunions) || []; });
+    },
+    gardee: function (id) {
+      return appeler("reunionGardee", { id: String(id || "") }).then(function (r) {
+        return r && r.octets && r.octets.length ? new Blob(r.octets, { type: "audio/mp4" }) : null;
+      });
+    },
+    noterGardee: function (id, infos) {
+      return appeler("noterReunion", { id: String(id || ""), infos: infos || {} }).catch(function () {});
+    },
+    oublierGardee: function (id) {
+      return appeler("oublierReunion", { id: String(id || "") }).catch(function () {});
     },
 
     _morceau: function (id, b64) {
