@@ -29,9 +29,9 @@ jobs:
           sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
           xcodebuild -version
 
-      - name: Tester les cadres Cloudflare et la connexion
+      - name: Tester les cadres Cloudflare, la connexion et les liens de réunion
         run: |
-          swiftc Rapporteur/PolitiqueNavigation.swift tests/main.swift -o /tmp/rapporteur-navigation-tests
+          swiftc Rapporteur/PolitiqueNavigation.swift Rapporteur/LiensReunion.swift tests/main.swift -o /tmp/rapporteur-navigation-tests
           /tmp/rapporteur-navigation-tests
 
       - name: Installer XcodeGen

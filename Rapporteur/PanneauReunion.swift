@@ -125,7 +125,8 @@ final class PanneauReunion: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         let (texte, bouton) = mots[langue] ?? mots["fr"]!
         titre.text = texte
         fermer.setTitle(bouton, for: .normal)
-        reunion.load(URLRequest(url: lien))
+        // Zoom : sa réunion dans le navigateur, jamais sa page de lancement (qui mène à l'App Store).
+        reunion.load(URLRequest(url: LiensReunion.pourLeNavigateur(lien)))
     }
 
     /// Fermer, c'est quitter la réunion : la page vide coupe micro et caméra.
@@ -228,6 +229,18 @@ final class PanneauReunion: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
                  preferences: WKWebpagePreferences,
                  decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void) {
         preferences.preferredContentMode = .desktop
+        if let url = action.request.url {
+            /* Essai de Felly (20/10/2026) : le lien Zoom menait à l'App Store. Une boutique
+               d'applications ne s'ouvre jamais ici ; la page de lancement de Zoom cède la place
+               à sa réunion dans le navigateur. */
+            if LiensReunion.versUneBoutique(url) { decisionHandler(.cancel, preferences); return }
+            let navigateur = LiensReunion.pourLeNavigateur(url)
+            if navigateur != url, action.targetFrame?.isMainFrame ?? true {
+                decisionHandler(.cancel, preferences)
+                webView.load(URLRequest(url: navigateur))
+                return
+            }
+        }
         // Les liens « ouvrez l'application » (msteams:, zoomus:, itms-apps:…)
         // emporteraient la réunion HORS de Rapporteur — donc hors du micro
         // partagé. On reste sur la version web, comme sur Android.
