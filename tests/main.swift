@@ -35,4 +35,28 @@ verifier("https://lerapporteur.com/en", attendu: .accueil(true))
 verifier("https://lerapporteur.com/compte", cadre: nil, clic: true, attendu: .charger)
 verifier("rapporteur://connexion?billet=obsolete", attendu: .retourConnexion)
 verifier("rapporteur://connexion?billet=obsolete", cadre: false, attendu: .refuser)
+// Le panneau de réunion : Zoom dans le navigateur, jamais de boutique d'applications (20/10/2026).
+func lien(_ avant: String, _ attendu: String) {
+    let obtenu = LiensReunion.pourLeNavigateur(URL(string: avant)!).absoluteString
+    precondition(obtenu == attendu, "Lien de réunion inattendu : \(avant) → \(obtenu), attendu \(attendu)")
+    nombre += 1
+}
+lien("https://us05web.zoom.us/j/81234567890?pwd=AbC123.1", "https://us05web.zoom.us/wc/join/81234567890?pwd=AbC123.1")
+lien("https://zoom.us/j/81234567890", "https://zoom.us/wc/join/81234567890")
+lien("https://zoom.us/j/81234567890/", "https://zoom.us/wc/join/81234567890")
+lien("https://zoom.us/wc/join/81234567890?pwd=x", "https://zoom.us/wc/join/81234567890?pwd=x")
+lien("https://zoom.us/my/salle", "https://zoom.us/my/salle")
+lien("https://zoom.us/j/abc", "https://zoom.us/j/abc")
+lien("https://evilzoom.us/j/81234567890", "https://evilzoom.us/j/81234567890")
+lien("http://zoom.us/j/81234567890", "http://zoom.us/j/81234567890")
+lien("https://teams.microsoft.com/l/meetup-join/19", "https://teams.microsoft.com/l/meetup-join/19")
+for boutique in ["https://apps.apple.com/us/app/id546505307", "itms-apps://itunes.apple.com/us/app/id546505307",
+                 "https://play.google.com/store/apps/details?id=us.zoom.videomeetings", "market://details?id=x"] {
+    precondition(LiensReunion.versUneBoutique(URL(string: boutique)!), "Boutique non reconnue : \(boutique)")
+    nombre += 1
+}
+for page in ["https://app.zoom.us/wc/81234567890/join", "https://teams.live.com/meet/1", "https://meet.google.com/abc-defg-hij"] {
+    precondition(!LiensReunion.versUneBoutique(URL(string: page)!), "Page de réunion prise pour une boutique : \(page)")
+    nombre += 1
+}
 print("\(nombre) scénarios de navigation validés")

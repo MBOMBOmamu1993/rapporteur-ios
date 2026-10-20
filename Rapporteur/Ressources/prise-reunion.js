@@ -22,6 +22,16 @@
  * temps seulement, l'interprète entend le micro du client tel que la réunion le
  * prend, dont la prise remet une copie à la salle. À l'arrêt, chaque envoi
  * retrouve le micro de la page.
+ *
+ * Zoom (20/10/2026, essai de Felly sur une vraie réunion : l'interprète « actif »,
+ * sans voix ni sous-titres — la prise n'avait trouvé AUCUN son) : la version web de
+ * Zoom ne joue pas les correspondants par des flux WebRTC ; elle décode elle-même
+ * leur son et le joue par Web Audio, et lit le micro par Web Audio pour l'encoder
+ * elle-même. Sur ses pages seulement, la prise écoute donc la SORTIE Web Audio de la
+ * page (ce qui va vers le haut-parleur passe par un gain à elle, dont elle garde une
+ * copie) et fait passer le micro du client, là où la page le branche, par un mélange
+ * à elle : tel quel d'ordinaire, la voix de l'interprète devant quand la salle le
+ * demande. Les pages de Teams, de Meet et des autres services ne sont pas touchées.
  */
 (function () {
   "use strict";
@@ -96,6 +106,182 @@
     window.RTCPeerConnection = Prise;
   }
 
+  /* ------------------------------------------------ Zoom : le son par Web Audio */
+
+  var ZOOM = domaine("zoom.us");
+  var nosContextes = [];   /* les contextes de la prise : jamais écoutés ni détournés */
+  var taps = [];           /* { c, entree, baisse, copie } : la sortie d'un contexte de la page */
+  var micros = [];         /* les pistes de micro que la page a demandées */
+  var melanges = [];       /* { c, source, client, voix, sortie, cibles, lie, entreeVoix } : le micro tel que la page le branche */
+  var lecteurs = [];       /* { origine, ctx, client, voix, piste, entreeVoix } : le micro tel que la page le lit trame par trame */
+  var connecter = AudioNode.prototype.connect;
+  var deconnecter = AudioNode.prototype.disconnect;
+
+  function estANous(c) { return nosContextes.indexOf(c) >= 0; }
+  function estDestination(n) { return typeof AudioDestinationNode !== "undefined" && n instanceof AudioDestinationNode; }
+
+  /** La sortie d'un contexte de la page : entrée (copie gardée) → baisse (le niveau de la réunion) → haut-parleur. */
+  function tapDe(c, creer) {
+    for (var i = 0; i < taps.length; i++) { if (taps[i].c === c) { return taps[i]; } }
+    if (!creer || typeof c.createMediaStreamDestination !== "function") { return null; }
+    try {
+      var t = { c: c, entree: c.createGain(), baisse: c.createGain(), copie: c.createMediaStreamDestination() };
+      t.baisse.gain.value = actif && niveau < 1 ? niveau : 1;
+      connecter.call(t.entree, t.baisse);
+      connecter.call(t.baisse, c.destination);
+      connecter.call(t.entree, t.copie);
+      taps.push(t);
+      // Les correspondants de Zoom : un flux comme ceux de Teams, que l'interprète écoute.
+      noter(t.copie.stream, null);
+      return t;
+    } catch (e) { return null; }
+  }
+
+  function estMicroDeLaPage(n) {
+    try {
+      if (typeof MediaStreamAudioSourceNode === "undefined" || !(n instanceof MediaStreamAudioSourceNode) || !n.mediaStream) { return false; }
+      return n.mediaStream.getAudioTracks().some(function (p) { return micros.indexOf(p) >= 0; });
+    } catch (e) { return false; }
+  }
+
+  function melangeDe(source, creer) {
+    for (var i = 0; i < melanges.length; i++) { if (melanges[i].source === source) { return melanges[i]; } }
+    if (!creer) { return null; }
+    var c = source.context;
+    var m = { c: c, source: source, client: c.createGain(), voix: c.createGain(), sortie: c.createGain(), cibles: [], lie: false, entreeVoix: null };
+    m.voix.gain.value = 0;
+    connecter.call(m.client, m.sortie);
+    connecter.call(m.voix, m.sortie);
+    melanges.push(m);
+    poserParole();
+    return m;
+  }
+
+  /** Le micro lu trame par trame (MediaStreamTrackProcessor) : la page lit à sa place la piste
+      d'un mélange à la prise — le micro tel quel, la voix de l'interprète devant quand il parle. */
+  function lecteurDe(p) {
+    for (var i = 0; i < lecteurs.length; i++) { if (lecteurs[i].origine === p) { return lecteurs[i]; } }
+    var c = new (window.AudioContext || window.webkitAudioContext)();
+    nosContextes.push(c);
+    var sortie = c.createMediaStreamDestination();
+    var l = { origine: p, ctx: c, client: c.createGain(), voix: c.createGain(), piste: sortie.stream.getAudioTracks()[0], entreeVoix: null };
+    l.voix.gain.value = 0;
+    c.createMediaStreamSource(new MediaStream([p])).connect(l.client);
+    l.client.connect(sortie);
+    l.voix.connect(sortie);
+    c.resume().catch(function () {});
+    lecteurs.push(l);
+    poserParole();
+    return l;
+  }
+
+  /** La voix de l'interprète dans chaque mélange de Zoom (règle 7), ou le micro tel quel. */
+  function poserParole() {
+    var parle = Boolean(parole && parole.ouvert);
+    lecteurs.forEach(function (l) {
+      if (parole && parole.sortieVoix && !l.entreeVoix) {
+        try { l.entreeVoix = l.ctx.createMediaStreamSource(parole.sortieVoix.stream); l.entreeVoix.connect(l.voix); } catch (e) { l.entreeVoix = null; }
+      }
+      if (!parole && l.entreeVoix) {
+        try { l.entreeVoix.disconnect(); } catch (e) { /* déjà débranchée */ }
+        l.entreeVoix = null;
+      }
+      l.voix.gain.value = parle ? 1 : 0;
+      l.client.gain.value = parle ? parole.niveau : 1;
+      if (l.ctx.state !== "running") { l.ctx.resume().catch(function () {}); }
+    });
+    melanges.forEach(function (m) {
+      if (parole && parole.sortieVoix && !m.entreeVoix) {
+        try { m.entreeVoix = m.c.createMediaStreamSource(parole.sortieVoix.stream); connecter.call(m.entreeVoix, m.voix); } catch (e) { m.entreeVoix = null; }
+      }
+      if (!parole && m.entreeVoix) {
+        try { deconnecter.call(m.entreeVoix); } catch (e) { /* déjà débranchée */ }
+        m.entreeVoix = null;
+      }
+      m.voix.gain.value = parle ? 1 : 0;
+      m.client.gain.value = parle ? parole.niveau : 1;
+    });
+  }
+
+  function dernierMicroVivant() {
+    micros = micros.filter(function (p) { return p.readyState !== "ended"; });
+    return micros.length ? micros[micros.length - 1] : null;
+  }
+
+  if (ZOOM && typeof connecter === "function" && typeof deconnecter === "function") {
+    /* Les micros que la page demande : la prise les reconnaîtra là où elle les branche. Sur le
+       prototype : une page peut appeler la méthode de MediaDevices directement. */
+    var md = typeof MediaDevices !== "undefined" && MediaDevices.prototype;
+    if (md && typeof md.getUserMedia === "function") {
+      var demander = md.getUserMedia;
+      md.getUserMedia = function () {
+        return demander.apply(this, arguments).then(function (f) {
+          try { f.getAudioTracks().forEach(function (p) { if (micros.indexOf(p) < 0) { micros.push(p); } }); } catch (e) { /* rien */ }
+          return f;
+        });
+      };
+    }
+    /* Zoom peut aussi lire le micro trame par trame (MediaStreamTrackProcessor) : il lit alors la
+       piste d'un mélange à la prise (lecteurDe). La page garde, elle, sa vraie piste. */
+    if (typeof window.MediaStreamTrackProcessor === "function") {
+      var Processeur = window.MediaStreamTrackProcessor;
+      var Detourne = function (options) {
+        try {
+          var p = options && options.track;
+          if (p && p.kind === "audio" && micros.indexOf(p) >= 0) {
+            var copie = {};
+            for (var cle in options) { copie[cle] = options[cle]; }
+            copie.track = lecteurDe(p).piste;
+            return new Processeur(copie);
+          }
+        } catch (e) { /* la page garde sa piste */ }
+        return new Processeur(options);
+      };
+      Detourne.prototype = Processeur.prototype;
+      window.MediaStreamTrackProcessor = Detourne;
+    }
+    AudioNode.prototype.connect = function (cible) {
+      try {
+        if (cible && !estANous(this.context)) {
+          var a = Array.prototype.slice.call(arguments);
+          if (estDestination(cible)) {
+            var t = tapDe(this.context, true);
+            if (t) { a[0] = t.entree; connecter.apply(this, a); return cible; }
+          } else if (cible instanceof AudioNode && estMicroDeLaPage(this)) {
+            var m = melangeDe(this, true);
+            if (!m.lie) { connecter.call(this, m.client); m.lie = true; }
+            connecter.call(m.sortie, cible, 0, a.length > 2 ? a[2] : 0);
+            if (m.cibles.indexOf(cible) < 0) { m.cibles.push(cible); }
+            return cible;
+          }
+        }
+      } catch (e) { /* la page garde la main */ }
+      return connecter.apply(this, arguments);
+    };
+    AudioNode.prototype.disconnect = function (cible) {
+      try {
+        if (!estANous(this.context)) {
+          var m = melangeDe(this, false);
+          if (arguments.length && cible instanceof AudioNode) {
+            if (estDestination(cible)) {
+              var t = tapDe(this.context, false);
+              if (t) { var a = Array.prototype.slice.call(arguments); a[0] = t.entree; return deconnecter.apply(this, a); }
+            } else if (m && m.cibles.indexOf(cible) >= 0) {
+              m.cibles.splice(m.cibles.indexOf(cible), 1);
+              return deconnecter.call(m.sortie, cible);
+            }
+          } else if (m) {
+            // Tout débranché : le mélange aussi ; il se rebranchera au prochain branchement de la page.
+            m.cibles = [];
+            m.lie = false;
+            try { deconnecter.call(m.sortie); } catch (e) { /* rien de branché */ }
+          }
+        }
+      } catch (e) { /* la page garde la main */ }
+      return deconnecter.apply(this, arguments);
+    };
+  }
+
   /* Les éléments déjà dans la page. */
   function balayer() {
     var liste = document.querySelectorAll("audio, video");
@@ -139,6 +325,7 @@
   function ouvrir() {
     if (ctx) { if (ctx.state !== "running") { ctx.resume().catch(function () {}); } return; }
     ctx = new (window.AudioContext || window.webkitAudioContext)();
+    nosContextes.push(ctx);
     melange = ctx.createGain();
     relecture = ctx.createGain();
     relecture.connect(ctx.destination);
@@ -162,6 +349,8 @@
   function poserNiveau() {
     var baisser = actif && niveau < 1 && Boolean(ctx);
     if (relecture) { relecture.gain.value = niveau; }
+    // Zoom : ce que la page joue par Web Audio baisse par le gain de sa sortie ; la copie, elle, reste entière.
+    taps.forEach(function (t) { try { t.baisse.gain.value = baisser ? niveau : 1; } catch (e) { /* contexte fermé */ } });
     elements.forEach(function (x) {
       var source = ctx ? sourceDe(x.f) : null;
       try {
@@ -211,11 +400,15 @@
   function ouvrirParole(n) {
     if (!parole) {
       var c = new (window.AudioContext || window.webkitAudioContext)();
+      nosContextes.push(c);
       var p = { ctx: c, curseur: 0, reserve: 0.4, envois: [], voix: 0, micro: 0, trous: 0, sautes: 0, silences: 0, ouvert: false };
       p.sortie = c.createMediaStreamDestination();
       p.piste = p.sortie.stream.getAudioTracks()[0];
       p.gainVoix = c.createGain();
       p.gainVoix.connect(p.sortie);
+      // Zoom : la voix seule, que chaque mélange de la page reçoit (poserParole).
+      p.sortieVoix = c.createMediaStreamDestination();
+      p.gainVoix.connect(p.sortieVoix);
       p.gainClient = c.createGain();
       p.gainClient.connect(p.sortie);
       p.traitement = c.createScriptProcessor(4096, 1, 1);
@@ -241,24 +434,36 @@
       (piste désactivée) fait taire l'envoi. */
   function suivreParole() {
     if (!parole) { return; }
-    envoisAudio().forEach(function (e) {
-      var piste = e.track;
-      if (piste === parole.piste) { return; }
-      brancherClient(piste);
-      var connu2 = parole.envois.filter(function (x) { return x.e === e; })[0];
-      if (connu2) { connu2.origine = piste; } else { parole.envois.push({ e: e, origine: piste }); }
-      e.replaceTrack(parole.piste).catch(function () { /* la page garde son micro */ });
-    });
+    /* Zoom : le micro que la page a demandé, et sa voix dans les mélanges de la page — pas
+       d'envoi à remplacer. Sans mélange (Zoom qui enverrait par une liaison), comme Teams. */
+    var parMelange = ZOOM && (melanges.length > 0 || lecteurs.length > 0);
+    if (ZOOM) {
+      var micro = dernierMicroVivant();
+      if (micro) { brancherClient(micro); }
+    }
+    if (!parMelange) {
+      envoisAudio().forEach(function (e) {
+        var piste = e.track;
+        if (piste === parole.piste) { return; }
+        brancherClient(piste);
+        var connu2 = parole.envois.filter(function (x) { return x.e === e; })[0];
+        if (connu2) { connu2.origine = piste; } else { parole.envois.push({ e: e, origine: piste }); }
+        e.replaceTrack(parole.piste).catch(function () { /* la page garde son micro */ });
+      });
+    }
     var o = parole.origine;
     parole.ouvert = Boolean(o && o.readyState === "live" && o.enabled);
     parole.gainVoix.gain.value = parole.ouvert ? 1 : 0;
     parole.gainClient.gain.value = parole.ouvert ? parole.niveau : 0;
+    if (ZOOM) { poserParole(); }
   }
 
   function fermerParole() {
     if (!parole) { return; }
     var p = parole;
     parole = null;
+    // Zoom : chaque mélange redonne le micro tel quel, avant que la voix ne s'éteigne.
+    poserParole();
     p.envois.forEach(function (x) {
       try {
         if (x.e.track === p.piste) { x.e.replaceTrack(x.origine && x.origine.readyState === "live" ? x.origine : null).catch(function () {}); }
@@ -323,7 +528,13 @@
         baisses: elements.filter(function (x) { return x.baisse; }).length, contexte: ctx ? ctx.state : null,
         parole: parole ? { ouvert: parole.ouvert, envois: envoisAudio().filter(function (e) { return e.track === parole.piste; }).length,
           voix: parole.voix, micro: parole.micro, trous: parole.trous, sautes: parole.sautes, silences: parole.silences,
-          reserve: parole.reserve, niveau: parole.niveau } : null });
+          reserve: parole.reserve, niveau: parole.niveau } : null,
+        // Zoom : les sorties Web Audio écoutées, les micros demandés, les mélanges où l'interprète parle.
+        zoom: ZOOM ? { taps: taps.length, micros: micros.length, melanges: melanges.length, lecteurs: lecteurs.length,
+          lies: melanges.filter(function (m) { return m.lie && m.cibles.length; }).length,
+          voix: melanges.filter(function (m) { return Boolean(m.entreeVoix); }).length,
+          cibles: melanges.map(function (m) { return m.cibles.map(function (c) { return (c.constructor && c.constructor.name) || "?"; }).join("+"); }).join(","),
+          baisse: taps.length ? taps[0].baisse.gain.value : null } : null });
     },
   };
 
