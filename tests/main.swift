@@ -60,3 +60,60 @@ for page in ["https://app.zoom.us/wc/81234567890/join", "https://teams.live.com/
     nombre += 1
 }
 print("\(nombre) scénarios de navigation validés")
+
+// Les réunions gardées (1.1.16) : rangées, notées, listées, redonnées, oubliées, ménage.
+var gardeesValides = 0
+func exiger(_ condition: Bool, _ message: String) {
+    precondition(condition, "Réunions gardées : \(message)")
+    gardeesValides += 1
+}
+let bancGardees = FileManager.default.temporaryDirectory.appendingPathComponent("gardees-\(UUID().uuidString)")
+func fichierDeSeance(_ octets: Int) -> URL {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("reunion-\(UUID().uuidString).m4a")
+    FileManager.default.createFile(atPath: url.path, contents: Data(repeating: 7, count: octets))
+    return url
+}
+let maintenant = Date()
+let gardees = ReunionsGardees(dossier: bancGardees, plafond: 25)
+let source = fichierDeSeance(12)
+let premiere = try! gardees.garder(fichier: source, debut: maintenant.addingTimeInterval(-3600), dureeSec: 3600,
+                                  proprietaire: "4a1a51e612220936a948c330")
+exiger(!FileManager.default.fileExists(atPath: source.path), "le fichier temporaire doit être déplacé")
+exiger(ReunionsGardees.valide(premiere), "identifiant invalide : \(premiere)")
+exiger(gardees.donnees(id: premiere)?.count == 12, "le fichier gardé doit se relire entier")
+try! gardees.noter(id: premiere, page: ["debut": "2026-10-20T13:33:52+01:00", "courriel": "a@exemple.cd", "langues_compte_rendu": ["fr"]])
+var liste = gardees.liste()
+exiger(liste.count == 1 && liste[0]["id"] as? String == premiere && (liste[0]["octets"] as? Int64) == 12, "liste : \(liste)")
+let infos = liste[0]["infos"] as? [String: Any]
+exiger((infos?["page"] as? [String: Any])?["courriel"] as? String == "a@exemple.cd", "ce que la page a noté doit revenir")
+exiger((infos?["natif"] as? [String: Any])?["proprietaire"] as? String == "4a1a51e612220936a948c330", "le compte doit être noté")
+exiger(((infos?["natif"] as? [String: Any])?["duree_sec"] as? Int) == 3600, "la durée doit être notée")
+exiger(((infos?["natif"] as? [String: Any])?["garde_ms"] as? NSNumber).map { abs($0.doubleValue / 1000 - Date().timeIntervalSince1970) < 60 } == true,
+       "l'heure du rangement doit être notée")
+for hostile in ["../secret", "a/b", "", String(repeating: "a", count: 65), "r 1", "é"] {
+    exiger(!ReunionsGardees.valide(hostile) && gardees.donnees(id: hostile) == nil, "identifiant accepté : \(hostile)")
+}
+exiger((try? gardees.noter(id: "r-inconnue", page: [:])) == nil, "noter une réunion absente doit échouer")
+exiger((try? gardees.noter(id: premiere, page: ["gros": String(repeating: "x", count: 70_000)])) == nil, "une note démesurée doit être refusée")
+// Plus de dix jours : partie ; la récente reste.
+_ = try! gardees.garder(fichier: fichierDeSeance(3), debut: maintenant.addingTimeInterval(-11 * 86_400), dureeSec: 3, proprietaire: nil)
+gardees.menage(maintenant: maintenant)
+liste = gardees.liste()
+exiger(liste.count == 1 && liste[0]["id"] as? String == premiere, "ménage des dix jours : \(liste)")
+// Au-delà du plafond (25 octets ici) : les plus anciennes partent, jamais la dernière.
+let deuxieme = try! gardees.garder(fichier: fichierDeSeance(10), debut: maintenant.addingTimeInterval(-1800), dureeSec: 10, proprietaire: nil)
+let troisieme = try! gardees.garder(fichier: fichierDeSeance(10), debut: maintenant.addingTimeInterval(-60), dureeSec: 10, proprietaire: nil)
+gardees.menage(maintenant: maintenant)
+exiger(gardees.liste().compactMap { $0["id"] as? String } == [deuxieme, troisieme], "ménage du plafond : \(gardees.liste())")
+let seule = ReunionsGardees(dossier: bancGardees.appendingPathComponent("seule"), plafond: 1)
+let derniere = try! seule.garder(fichier: fichierDeSeance(50), debut: maintenant, dureeSec: 50, proprietaire: nil)
+seule.menage(maintenant: maintenant)
+exiger(seule.liste().compactMap { $0["id"] as? String } == [derniere], "la dernière réunion ne part jamais au ménage")
+// Reçue par le serveur : oubliée, fichier et fiche.
+gardees.oublier(id: deuxieme)
+gardees.oublier(id: troisieme)
+exiger(gardees.liste().isEmpty, "oublier doit tout retirer")
+let restes = (try? FileManager.default.contentsOfDirectory(atPath: bancGardees.path)) ?? []
+exiger(!restes.contains { $0.hasSuffix(".json") || $0.hasSuffix(".m4a") }, "des fichiers restent : \(restes)")
+try? FileManager.default.removeItem(at: bancGardees)
+print("\(gardeesValides) contrôles des réunions gardées validés")
