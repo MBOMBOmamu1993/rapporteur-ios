@@ -1,0 +1,31 @@
+name: Vérifier et soumettre à Apple
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Opération App Store Connect
+        type: choice
+        options: [verifier]
+        default: verifier
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: examen-apple-rapporteur
+  cancel-in-progress: false
+jobs:
+  examen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: App Store Connect
+        env:
+          ASC_CLE_ID: ${{ secrets.ASC_CLE_ID }}
+          ASC_EMETTEUR_ID: ${{ secrets.ASC_EMETTEUR_ID }}
+          ASC_CLE_P8: ${{ secrets.ASC_CLE_P8 }}
+          ACTION_APPLE: ${{ inputs.action }}
+        run: node outils/app-store.mjs
