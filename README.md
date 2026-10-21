@@ -15,6 +15,22 @@ archive, signe et téléverse le build — sans TestFlight, directement attachab
 
 ## Architecture
 
+### Correction Zoom préparée le 21 octobre 2026
+
+La prise fournit à Zoom le micro mélangé à la traduction dès `getUserMedia`,
+y compris lorsque Zoom clone cette piste. L'interprète continue à recevoir le
+micro brut ; la voix originale envoyée reste à 15 % pendant la traduction.
+Le dernier arrêt d'une piste ou de ses clones libère le micro physique.
+Teams conserve sa piste d'origine. L'injection au début du document existait
+déjà sur iPhone et reste inchangée.
+
+`tests/essai-zoom.mjs` reproduit la perte de traduction de la 1.1.16, puis vérifie
+la traduction, le micro brut sans retour, le bouton muet, les clones et l'arrêt.
+Ce test utilise Chromium et Web Audio avec le pont iPhone simulé : il ne remplace
+pas un essai dans une vraie réunion Zoom sur iPhone. Le workflow `Construire`
+vérifie séparément la compilation et le lancement iPhone/iPad.
+La 1.1.16 en examen chez Apple n'est pas modifiée par ces changements de sources.
+
 | Pièce | Rôle |
 |---|---|
 | `ControleurPrincipal` | Un WKWebView plein écran qui charge `lerapporteur.com/mobile`. Marque → accueil de l'application ; `/api/connexion` → fenêtre système d'authentification (ASWebAuthenticationSession) et retour par `rapporteur://connexion?billet=…` ; tarifs, caisses → jamais (version App Store) ; autres sites → Safari ; hors connexion → écran local. |
