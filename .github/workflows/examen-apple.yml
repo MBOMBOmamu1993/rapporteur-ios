@@ -5,9 +5,13 @@ on:
       action:
         description: Opération App Store Connect
         type: choice
-        options: [verifier]
+        options: [verifier, remplacer]
         default: verifier
         required: true
+      confirmation:
+        description: 'Pour remplacer : 1.1.16 -> 1.1.17 (21)'
+        type: string
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -22,10 +26,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Vérifier la procédure
+        run: node --test tests/app-store.test.mjs
       - name: App Store Connect
         env:
           ASC_CLE_ID: ${{ secrets.ASC_CLE_ID }}
           ASC_EMETTEUR_ID: ${{ secrets.ASC_EMETTEUR_ID }}
           ASC_CLE_P8: ${{ secrets.ASC_CLE_P8 }}
           ACTION_APPLE: ${{ inputs.action }}
+          CONFIRMATION_APPLE: ${{ inputs.confirmation }}
         run: node outils/app-store.mjs
