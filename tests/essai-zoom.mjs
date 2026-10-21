@@ -13,10 +13,7 @@ try {
     await page.goto('https://' + host + '/test');
     await page.evaluate(() => {
       window.sons = { micro: [], sortie: [], reunion: [] };
-      window.webkit = { messageHandlers: { rapporteurReunion: { postMessage(e) { (e.type === 'micro' ? sons.micro : sons.reunion).push(e.b64); } } } };
-      window.rapporteurReunion = {
-        son(b) { sons.reunion.push(b); }, micro(b) { sons.micro.push(b); }
-      };
+      window.webkit = { messageHandlers: { rapporteurReunion: { postMessage(e) { (e.type === 'micro' ? sons.micro : sons.reunion).push(e); } } } };
       const md = typeof MediaDevices === 'undefined' ? Object.getPrototypeOf(navigator.mediaDevices) : MediaDevices.prototype;
       md.getUserMedia = async function () {
         const c = new AudioContext({ sampleRate: 48000 });
@@ -58,12 +55,12 @@ try {
     });
     await page.waitForTimeout(4500);
     const measure = async () => page.evaluate(() => {
-      function amplitude(frames, hz) {
+      function amplitude(frames, hz, taux = 48000) {
         const values = frames.slice(-8).map(frame => {
           let re = 0, im = 0;
           for (let i = 0; i < frame.length; i++) {
-            re += frame[i] * Math.cos(2 * Math.PI * hz * i / 48000);
-            im += frame[i] * Math.sin(2 * Math.PI * hz * i / 48000);
+            re += frame[i] * Math.cos(2 * Math.PI * hz * i / taux);
+            im += frame[i] * Math.sin(2 * Math.PI * hz * i / taux);
           }
           return 2 * Math.hypot(re, im) / frame.length;
         });
@@ -74,8 +71,13 @@ try {
         for (let i = 0; i < s.length; i += 2) { const n = s.charCodeAt(i) | s.charCodeAt(i+1) << 8; a.push((n > 32767 ? n-65536 : n) / 32768); }
         return a;
       }
+      // Le pont indique son taux réel (44,1 kHz sur certains hôtes, 48 kHz sur d'autres).
+      function micro(hz) {
+        const trames = sons.micro.slice(-8);
+        return trames.reduce((total, e) => total + amplitude([decode(e.b64)], hz, e.taux), 0) / (trames.length || 1);
+      }
       return { client: amplitude(sons.sortie, 220), voix: amplitude(sons.sortie, 880),
-        micro: amplitude(sons.micro.map(decode), 220), retour: amplitude(sons.micro.map(decode), 880),
+        micro: micro(220), retour: micro(880),
         etat: JSON.parse(__rapporteurPrise.etat()) };
     });
     let m = await measure();
