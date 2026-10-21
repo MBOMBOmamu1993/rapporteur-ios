@@ -1,0 +1,20 @@
+name: Circuit audio Zoom
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  audio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Installer le navigateur de test
+        run: |
+          npm install --prefix "$RUNNER_TEMP/zoom-test" playwright@1.62.1
+          "$RUNNER_TEMP/zoom-test/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Tester la prise iPhone avec un microphone simulé
+        run: NODE_PATH="$RUNNER_TEMP/zoom-test/node_modules" node tests/essai-zoom.mjs

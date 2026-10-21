@@ -164,7 +164,7 @@
     var c = new (window.AudioContext || window.webkitAudioContext)();
     nosContextes.push(c);
     var sortie = c.createMediaStreamDestination();
-    var l = { origine: p, ctx: c, client: c.createGain(), voix: c.createGain(), piste: sortie.stream.getAudioTracks()[0], entreeVoix: null };
+    var l = { origine: p, ctx: c, client: c.createGain(), voix: c.createGain(), piste: sortie.stream.getAudioTracks()[0], entreeVoix: null, pistes: [] };
     l.voix.gain.value = 0;
     c.createMediaStreamSource(new MediaStream([p])).connect(l.client);
     l.client.connect(sortie);
@@ -173,6 +173,29 @@
     lecteurs.push(l);
     poserParole();
     return l;
+  }
+
+  /* Zoom peut cloner ou transférer son micro à un worker : aucun crochet sur
+     AudioNode.connect ou window.MediaStreamTrackProcessor ne voit alors sa lecture.
+     On lui remet le mélange DÈS getUserMedia. Sa copie vers l'interprète reste la
+     piste brute, conservée dans micros. Aucun changement pour Teams/Meet.
+     Les clones gardent le mélange, et le dernier stop libère le vrai micro. */
+  function pistePourZoom(l, p) {
+    l.pistes.push(p);
+    var stop = p.stop.bind(p), clone = p.clone.bind(p);
+    p.stop = function () {
+      stop();
+      if (!l.pistes.some(function (x) { return x.readyState === "live"; })) {
+        l.origine.stop();
+        l.ctx.close().catch(function () {});
+      }
+    };
+    p.clone = function () { return pistePourZoom(l, clone()); };
+    // La page doit toujours retrouver le périphérique choisi et pouvoir le régler.
+    ["getSettings", "getConstraints", "getCapabilities", "applyConstraints"].forEach(function (nom) {
+      if (typeof l.origine[nom] === "function") { p[nom] = l.origine[nom].bind(l.origine); }
+    });
+    return p;
   }
 
   /** La voix de l'interprète dans chaque mélange de Zoom (règle 7), ou le micro tel quel. */
@@ -211,16 +234,36 @@
   if (ZOOM && typeof connecter === "function" && typeof deconnecter === "function") {
     /* Les micros que la page demande : la prise les reconnaîtra là où elle les branche. Sur le
        prototype : une page peut appeler la méthode de MediaDevices directement. */
-    var md = typeof MediaDevices !== "undefined" && MediaDevices.prototype;
+    var md = typeof MediaDevices !== "undefined" ? MediaDevices.prototype : navigator.mediaDevices;
     if (md && typeof md.getUserMedia === "function") {
       var demander = md.getUserMedia;
       md.getUserMedia = function () {
         return demander.apply(this, arguments).then(function (f) {
-          try { f.getAudioTracks().forEach(function (p) { if (micros.indexOf(p) < 0) { micros.push(p); } }); } catch (e) { /* rien */ }
+          f.getAudioTracks().forEach(function (p) {
+            if (micros.indexOf(p) < 0) { micros.push(p); }
+            try {
+              var l = lecteurDe(p);
+              var mixte = pistePourZoom(l, l.piste);
+              f.removeTrack(p);
+              f.addTrack(mixte);
+              p.addEventListener("ended", function () {
+                l.pistes.forEach(function (x) { x.stop(); });
+              });
+            } catch (e) { /* Si le mélange est indisponible, la réunion garde son micro. */ }
+          });
           return f;
         });
       };
     }
+    // MediaStream.clone natif ne passe pas par la méthode clone de chaque piste.
+    var clonerFlux = MediaStream.prototype.clone;
+    MediaStream.prototype.clone = function () {
+      var pistes = this.getTracks();
+      var notreMicro = pistes.some(function (p) {
+        return lecteurs.some(function (l) { return l.pistes.indexOf(p) >= 0; });
+      });
+      return notreMicro ? new MediaStream(pistes.map(function (p) { return p.clone(); })) : clonerFlux.call(this);
+    };
     /* Zoom peut aussi lire le micro trame par trame (MediaStreamTrackProcessor) : il lit alors la
        piste d'un mélange à la prise (lecteurDe). La page garde, elle, sa vraie piste. */
     if (typeof window.MediaStreamTrackProcessor === "function") {
@@ -452,7 +495,9 @@
       });
     }
     var o = parole.origine;
-    parole.ouvert = Boolean(o && o.readyState === "live" && o.enabled);
+    var lecture = lecteurs.filter(function (l) { return l.origine === o; })[0];
+    var pageOuverte = !lecture || lecture.pistes.some(function (p) { return p.readyState === "live" && p.enabled; });
+    parole.ouvert = Boolean(o && o.readyState === "live" && o.enabled && pageOuverte);
     parole.gainVoix.gain.value = parole.ouvert ? 1 : 0;
     parole.gainClient.gain.value = parole.ouvert ? parole.niveau : 0;
     if (ZOOM) { poserParole(); }
