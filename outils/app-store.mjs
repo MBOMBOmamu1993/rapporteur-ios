@@ -29,7 +29,12 @@ export async function etat(api) {
   const versions = await api(`/v1/apps/${APP}/appStoreVersions?filter[platform]=IOS&include=build&limit=50`);
   const builds = await api(`/v1/builds?filter[app]=${APP}&filter[version]=21&include=preReleaseVersion&limit=50`);
   const examens = await api(`/v1/apps/${APP}/reviewSubmissions?include=items&limit=50`);
-  return { app, versions, builds, examens };
+  const details = [];
+  for (const s of examens.data.filter(s => ['WAITING_FOR_REVIEW', 'IN_REVIEW', 'READY_FOR_REVIEW', 'UNRESOLVED_ISSUES'].includes(s.attributes.state))) {
+    const items = await api(`/v1/reviewSubmissions/${s.id}/items?include=appStoreVersion&limit=50`);
+    details.push({ examen: s.id, items });
+  }
+  return { app, versions, builds, examens, details };
 }
 
 export function resume(e) {
@@ -39,7 +44,7 @@ export function resume(e) {
     builds: e.builds.data.map(b => ({ id: b.id, numero: b.attributes.version, traitement: b.attributes.processingState, expire: b.attributes.expired, chiffrementNonExempte: b.attributes.usesNonExemptEncryption, preRelease: b.relationships.preReleaseVersion?.data?.id })),
     prereleases: e.builds.included?.filter(x => x.type === 'preReleaseVersions').map(x => ({ id: x.id, ...x.attributes })),
     examens: e.examens.data.map(s => ({ id: s.id, etat: s.attributes.state, plateforme: s.attributes.platform, items: s.relationships.items?.data })),
-    items: e.examens.included?.filter(x => x.type === 'reviewSubmissionItems').map(x => ({ id: x.id, etat: x.attributes.state, version: x.relationships.appStoreVersion?.data?.id })),
+    items: e.details.map(d => ({ examen: d.examen, items: d.items.data.map(x => ({ id: x.id, etat: x.attributes.state, version: x.relationships?.appStoreVersion?.data?.id })) })),
   };
 }
 
