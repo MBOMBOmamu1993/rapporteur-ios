@@ -155,6 +155,9 @@ final class PanneauReunion: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
     var surSon: ((String, Int) -> Void)?
     /// Un morceau du micro du client tel que la réunion le prend (règle 7), pour la salle.
     var surMicro: ((String, Int) -> Void)?
+    /// L'état de la prise pendant que l'interprète parle (1.1.18) — des comptes en base 64 :
+    /// réserve de la voix, trous, silences —, pour le relevé de la salle.
+    var surEtatPrise: ((String) -> Void)?
     /// La page du panneau a changé : le contrôleur redit à la salle si l'interprète peut s'y brancher.
     var surEtat: (() -> Void)?
 
@@ -204,7 +207,8 @@ final class PanneauReunion: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
     }
 
     /// Le seul pont de la page de réunion : elle ne peut que DONNER le son de ses
-    /// correspondants, ou le micro du client pendant que l'interprète y parle.
+    /// correspondants, le micro du client pendant que l'interprète y parle, et l'état
+    /// de sa prise (des comptes).
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         let origine = message.frameInfo.securityOrigin
         guard message.frameInfo.isMainFrame, origine.protocol == "https", [0, 443].contains(origine.port),
@@ -217,6 +221,7 @@ final class PanneauReunion: UIView, WKNavigationDelegate, WKUIDelegate, WKScript
         switch type {
         case "son" where priseReunion: surSon?(morceau, taux)
         case "micro" where paroleReunion: surMicro?(morceau, taux)
+        case "etat" where paroleReunion && morceau.utf8.count <= 4_096: surEtatPrise?(morceau)
         default: break
         }
     }

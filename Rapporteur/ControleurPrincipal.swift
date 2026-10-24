@@ -59,6 +59,9 @@ final class ControleurPrincipal: UIViewController, WKNavigationDelegate, WKUIDel
         panneau.surMicro = { [weak self] morceau, taux in
             self?.pont.direReunion("rapporteurMicroReunion", "recevoir", "'\(morceau)',\(taux)")
         }
+        panneau.surEtatPrise = { [weak self] morceau in
+            self?.pont.direReunion("rapporteurMicroReunion", "etat", "'\(morceau)'")
+        }
         panneau.surEtat = { [weak self] in self?.pousserEtatReunion() }
         pont.surInterprete = { [weak self] actif in self?.tenirEveille(interprete: actif) }
 
