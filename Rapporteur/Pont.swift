@@ -365,10 +365,11 @@ final class Pont: NSObject, WKScriptMessageHandler {
     }
 
     /// Le son des correspondants (rapporteurSonReunion) ou le micro du client
-    /// (rapporteurMicroReunion), remis à la salle : `recevoir(morceau, taux)` ou `arrete()`.
+    /// (rapporteurMicroReunion), remis à la salle : `recevoir(morceau, taux)` ou `arrete()` ;
+    /// et l'état de la prise (1.1.18) : `etat(b64)`.
     func direReunion(_ objet: String, _ fonction: String, _ argument: String = "") {
         guard pageDeConfiance, ["rapporteurSonReunion", "rapporteurMicroReunion"].contains(objet),
-              ["recevoir", "arrete"].contains(fonction) else { return }
+              ["recevoir", "arrete", "etat"].contains(fonction) else { return }
         vue?.evaluateJavaScript("window.\(objet) && window.\(objet).\(fonction)(\(argument));")
     }
 

@@ -18,3 +18,5 @@ jobs:
           "$RUNNER_TEMP/zoom-test/node_modules/.bin/playwright" install --with-deps chromium
       - name: Tester la prise iPhone avec un microphone simulé
         run: NODE_PATH="$RUNNER_TEMP/zoom-test/node_modules" node tests/essai-zoom.mjs
+      - name: Tester la réserve de la voix de l'interprète dans la réunion
+        run: NODE_PATH="$RUNNER_TEMP/zoom-test/node_modules" node tests/essai-reserve.mjs

@@ -440,11 +440,33 @@
     } catch (e) { parole.source = null; }
   }
 
+  /* La réserve de lecture de la voix (24/10/2026, Felly : « le retard de l'interprète de mes
+     interlocuteurs est criant, il doit être instantané ») : 150 ms au départ — 400 jusqu'à la
+     version précédente —, et seulement ce que les à-coups réclament. À chaque trou (réserve vide
+     pendant la voix), elle grandit de 100 ms, ou jusqu'au retard constaté plus une garde de 50 ms,
+     800 ms au plus ; après 15 s sans trou, elle redescend d'au plus 100 ms vers le plus grand
+     retard vu dans la fenêtre (plus la garde), jamais sous 150 ms. Un silence de plus de 1,5 s
+     n'est pas un trou : c'est la salle qui s'est tue, la réserve n'en grandit pas. Le retard se
+     rattrape sur les SILENCES de l'interprète, jamais sur sa voix : un morceau muet est sauté dès
+     que l'avance dépasse la réserve de 60 ms ; seule une rafale de plus de 3 s fait sauter un
+     morceau de voix. */
+  var RESERVE_DEPART = 0.15, RESERVE_PAS = 0.1, RESERVE_MAX = 0.8, RESERVE_GARDE = 0.05, RESERVE_MARGE = 0.06;
+  var FENETRE_CALME_S = 15, PAUSE_S = 1.5;
+
+  /** L'état de la prise (des comptes, jamais un mot) remis à la salle pour son relevé : à 2 s,
+      puis toutes les 10 s pendant que l'interprète parle dans la réunion, et à l'arrêt. */
+  function rapporter() {
+    var p = parole;
+    if (!p || !p.ouvert) { return; }
+    try { envoyer("etat", btoa(window.__rapporteurPrise.etat()), p.ctx.sampleRate); p.rapports++; } catch (e) { /* l'application est partie */ }
+  }
+
   function ouvrirParole(n) {
     if (!parole) {
       var c = new (window.AudioContext || window.webkitAudioContext)();
       nosContextes.push(c);
-      var p = { ctx: c, curseur: 0, reserve: 0.4, envois: [], voix: 0, micro: 0, trous: 0, sautes: 0, silences: 0, ouvert: false };
+      var p = { ctx: c, curseur: 0, reserve: RESERVE_DEPART, reserveMax: RESERVE_DEPART, attendu: 0, retardMax: 0, creux: 0, calmeDepuis: 0,
+        baisses: 0, pauses: 0, rapports: 0, tics: 0, envois: [], voix: 0, micro: 0, trous: 0, sautes: 0, silences: 0, ouvert: false };
       p.sortie = c.createMediaStreamDestination();
       p.piste = p.sortie.stream.getAudioTracks()[0];
       p.gainVoix = c.createGain();
@@ -505,6 +527,7 @@
 
   function fermerParole() {
     if (!parole) { return; }
+    rapporter();
     var p = parole;
     parole = null;
     // Zoom : chaque mélange redonne le micro tel quel, avant que la voix ne s'éteigne.
@@ -549,17 +572,40 @@
         canalVoix[i] = (v > 32767 ? v - 65536 : v) / 32768;
         if (canalVoix[i] > crete) { crete = canalVoix[i]; } else if (-canalVoix[i] > crete) { crete = -canalVoix[i]; }
       }
-      /* Une réserve, 400 ms au départ : les morceaux arrivent par à-coups (deux pages,
-         l'application entre elles), la voix reste continue. Chaque trou l'allonge de
-         200 ms, jusqu'à une seconde ; le retard se rattrape sur les SILENCES de
-         l'interprète, jamais sur sa voix ; seule une rafale de plus de 3 s fait
-         sauter un morceau (Felly, 17/10/2026). */
+      /* La réserve (RESERVE_DEPART et suivantes) : les morceaux arrivent par à-coups (deux pages,
+         l'application entre elles), la voix reste continue (Felly, 17/10/2026 : « elle sort
+         entrecoupée, haletante », « au démarrage il y avait ces à-coups »). */
       var avance = p.curseur - maintenant;
-      if (avance > p.reserve + 0.2 && crete < 0.01) { p.silences++; return; }
+      // Le retard de ce morceau sur l'heure où il était attendu : le précédent, plus sa durée.
+      var retard = p.attendu ? Math.max(0, maintenant - p.attendu) : 0;
+      p.attendu = maintenant + tampon.duration;
+      if (avance > p.reserve + RESERVE_MARGE && crete < 0.01) { p.silences++; return; }
       if (avance > 3) { p.sautes++; return; }
       if (avance < 0.02) {
-        if (p.voix > 0) { p.trous++; p.reserve = Math.min(1, p.reserve + 0.2); }
+        if (p.voix > 0 && retard >= PAUSE_S) {
+          // La salle s'était tue : pas un trou, la réserve reste.
+          p.pauses++;
+        } else if (p.voix > 0) {
+          // Réserve vide pendant la voix : un trou (le premier morceau n'en est pas un) — elle grandit.
+          p.trous++;
+          p.reserve = Math.min(RESERVE_MAX, Math.max(p.reserve + RESERVE_PAS, retard + RESERVE_GARDE));
+          if (p.reserve > p.reserveMax) { p.reserveMax = p.reserve; }
+        }
         p.curseur = maintenant + p.reserve;
+        p.retardMax = 0;
+        p.creux = p.reserve;
+        p.calmeDepuis = maintenant;
+      } else {
+        if (retard > p.retardMax) { p.retardMax = retard; }
+        if (avance < p.creux) { p.creux = avance; }
+        // Quinze secondes sans trou : la réserve redescend vers ce que les à-coups ont réclamé.
+        if (maintenant - p.calmeDepuis >= FENETRE_CALME_S) {
+          var voulue = Math.max(RESERVE_DEPART, p.retardMax + RESERVE_GARDE);
+          if (voulue < p.reserve) { p.reserve = Math.max(voulue, p.reserve - RESERVE_PAS); p.baisses++; }
+          p.retardMax = 0;
+          p.creux = avance;
+          p.calmeDepuis = maintenant;
+        }
       }
       var lecture = p.ctx.createBufferSource();
       lecture.buffer = tampon;
@@ -573,7 +619,10 @@
         baisses: elements.filter(function (x) { return x.baisse; }).length, contexte: ctx ? ctx.state : null,
         parole: parole ? { ouvert: parole.ouvert, envois: envoisAudio().filter(function (e) { return e.track === parole.piste; }).length,
           voix: parole.voix, micro: parole.micro, trous: parole.trous, sautes: parole.sautes, silences: parole.silences,
-          reserve: parole.reserve, niveau: parole.niveau } : null,
+          reserve: Math.round(parole.reserve * 1000) / 1000, reserveMax: Math.round(parole.reserveMax * 1000) / 1000,
+          baisses: parole.baisses, pauses: parole.pauses, rapports: parole.rapports,
+          retardMax: Math.round(parole.retardMax * 1000) / 1000, creux: Math.round(parole.creux * 1000) / 1000,
+          niveau: parole.niveau, contexte: parole.ctx.state, avance: Math.round((parole.curseur - parole.ctx.currentTime) * 1000) / 1000 } : null,
         // Zoom : les sorties Web Audio écoutées, les micros demandés, les mélanges où l'interprète parle.
         zoom: ZOOM ? { taps: taps.length, micros: micros.length, melanges: melanges.length, lecteurs: lecteurs.length,
           lies: melanges.filter(function (m) { return m.lie && m.cibles.length; }).length,
@@ -589,5 +638,9 @@
     flux.forEach(brancher);
     poserNiveau();
   }, 1000);
-  setInterval(suivreParole, 500);
+  setInterval(function () {
+    suivreParole();
+    // Le relevé de la prise pour la salle : à 2 s, puis toutes les 10 s, tant que l'interprète y parle.
+    if (parole && parole.ouvert) { parole.tics++; if (parole.tics === 4 || parole.tics % 20 === 0) { rapporter(); } }
+  }, 500);
 })();
